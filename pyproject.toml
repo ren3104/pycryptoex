@@ -47,5 +47,8 @@ include = [
   "/README.md",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["crypto_exchange"]
+
 [project.scripts]
 cryptoexchange = "crypto_exchange._cli:cli"
