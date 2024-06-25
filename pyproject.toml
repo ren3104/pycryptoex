@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-exchange"
+dynamic = ["version"]
+description = ""
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+  { name = "ren3104", email = "2ren3104@gmail.com" },
+]
+keywords = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "aiohttp",
+  "typing-extensions ; python_version < '3.11'",
+]
+
+[tool.hatch.version]
+path = "crypto_exchange/__init__.py"
+
+[project.urls]
+Homepage = "https://github.com/ren3104/crypto-exchange"
+Repository = "https://github.com/ren3104/crypto-exchange"
+"Bug Tracker" = "https://github.com/ren3104/crypto-exchange/issues"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/crypto_exchange",
+  "/README.md",
+]
+
+[project.optional-dependencies]
+kucoin = ["kucoin-client @ git+https://github.com/ren3104/crypto-exchange.git@main#subdirectory=clients/kucoin"]
