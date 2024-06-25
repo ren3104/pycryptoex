@@ -47,5 +47,8 @@ include = [
   "/README.md",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project.optional-dependencies]
 kucoin = ["kucoin-client @ git+https://github.com/ren3104/crypto-exchange.git@main#subdirectory=clients/kucoin"]
