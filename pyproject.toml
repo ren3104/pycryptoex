@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [tool.hatch.version]
-path = "crypto_exchange/__init__.py"
+path = "crypto_exchange/__version__.py"
 
 [project.urls]
 Homepage = "https://github.com/ren3104/crypto-exchange"
@@ -47,8 +47,5 @@ include = [
   "/README.md",
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[project.optional-dependencies]
-kucoin = ["kucoin-client @ git+https://github.com/ren3104/crypto-exchange.git@main#subdirectory=clients/kucoin"]
+[project.scripts]
+cryptoexchange = "crypto_exchange._cli:cli"

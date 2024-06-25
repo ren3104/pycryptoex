@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlencode
+import sys
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,29 +20,29 @@ from crypto_exchange.base.exceptions import AuthenticationError
 from crypto_exchange.base.utils import current_timestamp, hmac_signature
 
 
-__version__ = "0.1.0"
-
-
-class KuCoin(BaseExchange):
+class Bybit(BaseExchange):
     __slots__ = (
         "api_key",
         "secret",
-        "passphrase"
+        "recv_window",
+        "timestamp_offset"
     )
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         secret: Optional[str] = None,
-        passphrase: Optional[str] = None,
-        url: str = "https://api.kucoin.com",
+        recv_window: str = "5000",
+        timestamp_offset: Optional[int] = None,
+        url: str = "https://api.bytick.com",
         session: Optional[ClientSession] = None,
         json_encoder: JSONEncoder = json.dumps,
         json_decoder: JSONDecoder = json.loads
     ) -> None:
         self.api_key = api_key
         self.secret = secret
-        self.passphrase = passphrase
+        self.recv_window = recv_window
+        self.timestamp_offset = timestamp_offset
 
         super().__init__(
             url=url,
@@ -56,26 +62,23 @@ class KuCoin(BaseExchange):
             raise AuthenticationError("api_key")
         elif self.secret is None:
             raise AuthenticationError("secret")
-        elif self.passphrase is None:
-            raise AuthenticationError("passphrase")
 
         if params is None:
             params = {}
         if headers is None:
             headers = {}
 
-        timestamp = str(current_timestamp())
+        headers["X-BAPI-API-KEY"] = self.api_key
+        headers["X-BAPI-SIGN"] = hmac_signature(
+            key=self.secret,
+            msg=urlencode(params)
+        )
+        headers["X-BAPI-TIMESTAMP"] = str(current_timestamp() + (self.timestamp_offset or 0))
+        headers["X-BAPI-RECV-WINDOW"] = self.recv_window
+    
+    async def __aenter__(self) -> Self:
+        if self.timestamp_offset is None:
+            server_time: int = (await self.request("/v5/market/time"))["time"]
+            self.timestamp_offset = server_time - current_timestamp()
 
-        headers["KC-API-KEY"] = self.api_key
-        headers["KC-API-SIGN"] = hmac_signature(
-            key=self.secret,
-            msg=timestamp + method + path + self._json_encoder(params),
-            digest="base64"
-        )
-        headers["KC-API-PASSPHRASE"] = hmac_signature(
-            key=self.secret,
-            msg=self.passphrase,
-            digest="base64"
-        )
-        headers["KC-API-TIMESTAMP"] = timestamp
-        headers["KC-API-KEY-VERSION"] = "2"
+        return self
