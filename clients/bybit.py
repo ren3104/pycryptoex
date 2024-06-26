@@ -15,9 +15,9 @@ if TYPE_CHECKING:
 
     from typing import Any, Dict, Optional
 
-from crypto_exchange.base.exchange import BaseExchange
-from crypto_exchange.base.exceptions import AuthenticationError
-from crypto_exchange.base.utils import current_timestamp, hmac_signature
+from pycryptoex.base.exchange import BaseExchange
+from pycryptoex.base.exceptions import AuthenticationError
+from pycryptoex.base.utils import current_timestamp, hmac_signature
 
 
 class Bybit(BaseExchange):

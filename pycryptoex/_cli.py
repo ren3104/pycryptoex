@@ -7,7 +7,7 @@ from typing import Optional
 
 
 HOME_PATH = Path(__file__).parent.resolve()
-REPO_URL = "https://raw.githubusercontent.com/ren3104/crypto-exchange"
+REPO_URL = "https://raw.githubusercontent.com/ren3104/pycryptoex"
 
 CLASS_NAME_MAP = {
     "kucoin": "KuCoin"
@@ -70,7 +70,7 @@ def cli() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("names", type=str, nargs="+")
     parser.add_argument("-u", "--update", action="store_true")
-    # -D --delete
+    # -d --delete
     args = parser.parse_args()
 
     asyncio.run(main(args))

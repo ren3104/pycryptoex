@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "crypto-exchange"
+name = "pycryptoex"
 dynamic = ["version"]
 description = ""
 readme = "README.md"
@@ -34,21 +34,21 @@ dependencies = [
 ]
 
 [tool.hatch.version]
-path = "crypto_exchange/__version__.py"
+path = "pycryptoex/__version__.py"
 
 [project.urls]
-Homepage = "https://github.com/ren3104/crypto-exchange"
-Repository = "https://github.com/ren3104/crypto-exchange"
-"Bug Tracker" = "https://github.com/ren3104/crypto-exchange/issues"
+Homepage = "https://github.com/ren3104/pycryptoex"
+Repository = "https://github.com/ren3104/pycryptoex"
+"Bug Tracker" = "https://github.com/ren3104/pycryptoex/issues"
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "/crypto_exchange",
+  "/pycryptoex",
   "/README.md",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["crypto_exchange"]
+packages = ["pycryptoex"]
 
 [project.scripts]
-cryptoexchange = "crypto_exchange._cli:cli"
+cryptotrade = "pycryptoex._cli:cli"
