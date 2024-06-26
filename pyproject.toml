@@ -51,4 +51,4 @@ include = [
 packages = ["pycryptoex"]
 
 [project.scripts]
-cryptotrade = "pycryptoex._cli:cli"
+pycryptoex = "pycryptoex._cli:cli"
