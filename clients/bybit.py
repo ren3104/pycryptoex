@@ -3,21 +3,22 @@ from __future__ import annotations
 import json
 from urllib.parse import urlencode
 import sys
+from typing import TYPE_CHECKING
+
+from pycryptoex.base.exchange import BaseExchange
+from pycryptoex.base.exceptions import AuthenticationError
+from pycryptoex.base.utils import current_timestamp, hmac_signature
+
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing_extensions import Self
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from aiohttp import ClientSession
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
     from typing import Any, Dict, Optional
-
-from pycryptoex.base.exchange import BaseExchange
-from pycryptoex.base.exceptions import AuthenticationError
-from pycryptoex.base.utils import current_timestamp, hmac_signature
 
 
 class Bybit(BaseExchange):

@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import aiohttp
 
 import argparse
 from pathlib import Path
 import asyncio
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Optional
 
 
 HOME_PATH = Path(__file__).parent.resolve()

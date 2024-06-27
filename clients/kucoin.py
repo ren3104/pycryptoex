@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from pycryptoex.base.exchange import BaseExchange
+from pycryptoex.base.exceptions import AuthenticationError
+from pycryptoex.base.utils import current_timestamp, hmac_signature
+
 if TYPE_CHECKING:
     from aiohttp import ClientSession
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
     from typing import Any, Dict, Optional
-
-from pycryptoex.base.exchange import BaseExchange
-from pycryptoex.base.exceptions import AuthenticationError
-from pycryptoex.base.utils import current_timestamp, hmac_signature
 
 
 class KuCoin(BaseExchange):

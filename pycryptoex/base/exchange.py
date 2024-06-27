@@ -5,15 +5,18 @@ from aiohttp import ClientSession
 import json
 from urllib.parse import urlparse
 import sys
+from typing import TYPE_CHECKING
+
+from ..__version__ import __version__
+
 if sys.version_info >= (3, 11):
     from typing import Self
 else:
     from typing_extensions import Self
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
-
+    
     from typing import Any, Dict, Optional
 
 
@@ -65,7 +68,7 @@ class BaseExchange:
     ) -> Any:
         headers.update({
             "Content-Type": "application/json;charset=utf-8",
-            "User-Agent": "crypto-exchange-client"
+            "User-Agent": "pycryptoex-" + __version__
         })
 
         if signed:
