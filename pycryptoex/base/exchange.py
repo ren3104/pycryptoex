@@ -15,6 +15,7 @@ else:
     from typing_extensions import Self
 
 if TYPE_CHECKING:
+    from aiohttp import ClientResponse
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
     
     from typing import Any, Dict, Optional, Union
@@ -49,13 +50,14 @@ class BaseExchange:
         self,
         path: str,
         params: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, Any]] = None,
+        data: Optional[Union[Dict[str, Any], str]] = None,
+        headers: Dict[str, Any] = {},
         method: str = "GET"
     ) -> None:
         raise NotImplementedError
     
-    def _handle_response_data(self, data: Any) -> Any:
-        return data
+    def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
+        pass
     
     async def request(
         self,
@@ -63,7 +65,7 @@ class BaseExchange:
         signed: bool = False,
         params: Optional[Dict[str, Any]] = None,
         data: Optional[Union[Dict[str, Any], str]] = None,
-        headers: Optional[Dict[str, Any]] = None,
+        headers: Dict[str, Any] = {},
         method: str = "GET",
         **request_kwargs: Any
     ) -> Any:
@@ -96,15 +98,18 @@ class BaseExchange:
             url=url,
             params=params,
             data=data,
-            raise_for_status=True,
             **request_kwargs
         ) as response:
-            data = await response.json(
+            json_data = await response.json(
                 encoding="utf-8",
                 loads=self._json_decoder
             )
 
-            return self._handle_response_data(data)
+            self._handle_errors(response, json_data)
+
+            response.raise_for_status()
+
+            return json_data
     
     async def __aenter__(self) -> Self:
         return self

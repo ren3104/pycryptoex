@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from aiohttp import ClientSession
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
-    from typing import Any, Dict, Optional
+    from typing import Any, Dict, Optional, Union
 
 
 class Bybit(BaseExchange):
@@ -54,10 +54,9 @@ class Bybit(BaseExchange):
 
     def _sign(
         self,
-        path: str,
         params: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, Any]] = None,
-        method: str = "GET"
+        headers: Dict[str, Any] = {},
+        **kwargs: Any
     ) -> None:
         if self.api_key is None:
             raise AuthenticationError("api_key")
@@ -66,8 +65,6 @@ class Bybit(BaseExchange):
 
         if params is None:
             params = {}
-        if headers is None:
-            headers = {}
 
         headers["X-BAPI-API-KEY"] = self.api_key
         headers["X-BAPI-SIGN"] = hmac_signature(

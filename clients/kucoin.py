@@ -5,14 +5,14 @@ import json
 from typing import TYPE_CHECKING
 
 from pycryptoex.base.exchange import BaseExchange
-from pycryptoex.base.exceptions import AuthenticationError
+from pycryptoex.base.exceptions import AuthenticationError, ExchangeApiError
 from pycryptoex.base.utils import current_timestamp, hmac_signature
 
 if TYPE_CHECKING:
-    from aiohttp import ClientSession
+    from aiohttp import ClientSession, ClientResponse
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
-    from typing import Any, Dict, Optional
+    from typing import Any, Dict, Optional, Union
 
 
 class KuCoin(BaseExchange):
@@ -47,8 +47,8 @@ class KuCoin(BaseExchange):
         self,
         path: str,
         params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, Any]] = None,
+        data: Optional[Union[Dict[str, Any], str]] = None,
+        headers: Dict[str, Any] = {},
         method: str = "GET"
     ) -> None:
         if self.api_key is None:
@@ -57,9 +57,6 @@ class KuCoin(BaseExchange):
             raise AuthenticationError("secret")
         elif self.passphrase is None:
             raise AuthenticationError("passphrase")
-
-        if headers is None:
-            headers = {}
 
         body = ""
         if params is not None and len(params) != 0:
@@ -88,3 +85,11 @@ class KuCoin(BaseExchange):
         )
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
+
+    def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
+        if isinstance(json_data, dict):
+            code = json_data.get("code")
+            if code != "200000":
+                msg = json_data.get("msg")
+                if msg is not None:
+                    raise ExchangeApiError(code, msg)
