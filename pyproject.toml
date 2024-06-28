@@ -5,14 +5,26 @@ build-backend = "hatchling.build"
 [project]
 name = "pycryptoex"
 dynamic = ["version"]
-description = ""
+description = "A library providing a clients for interacting with various APIs of cryptocurrency exchanges for trading and accessing market data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
 authors = [
   { name = "ren3104", email = "2ren3104@gmail.com" },
 ]
-keywords = []
+keywords = [
+  "crypto",
+  "cryptocurrency",
+  "exchange",
+  "trade",
+  "trading",
+  "bitcoin",
+  "altcoin",
+  "api",
+  "api-client",
+  "websocket",
+  "async",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -42,9 +54,8 @@ Repository = "https://github.com/ren3104/pycryptoex"
 "Bug Tracker" = "https://github.com/ren3104/pycryptoex/issues"
 
 [tool.hatch.build.targets.sdist]
-include = [
-  "/pycryptoex",
-  "/README.md",
+exclude = [
+  "/clients",
 ]
 
 [tool.hatch.build.targets.wheel]
