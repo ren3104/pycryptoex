@@ -77,12 +77,12 @@ class KuCoin(BaseExchange):
             key=self.secret,
             msg=timestamp + method + path + body,
             digest="base64"
-        )
+        ).decode("utf-8")
         headers["KC-API-PASSPHRASE"] = hmac_signature(
             key=self.secret,
             msg=self.passphrase,
             digest="base64"
-        )
+        ).decode("utf-8")
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
 
