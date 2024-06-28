@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
 import json
 from typing import TYPE_CHECKING
 
@@ -46,6 +47,7 @@ class KuCoin(BaseExchange):
         self,
         path: str,
         params: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, Any]] = None,
         method: str = "GET"
     ) -> None:
@@ -56,17 +58,27 @@ class KuCoin(BaseExchange):
         elif self.passphrase is None:
             raise AuthenticationError("passphrase")
 
-        if params is None:
-            params = {}
         if headers is None:
             headers = {}
+
+        body = ""
+        if params is not None and len(params) != 0:
+            if method in ("GET", "DELETE"):
+                path += "?" + urlencode(params)
+                params.clear()
+            else:
+                if data is None:
+                    data = {}
+                data.update(params)
+                params.clear()
+                body = data = self._json_encoder(data)
 
         timestamp = str(current_timestamp())
 
         headers["KC-API-KEY"] = self.api_key
         headers["KC-API-SIGN"] = hmac_signature(
             key=self.secret,
-            msg=timestamp + method + path + self._json_encoder(params),
+            msg=timestamp + method + path + body,
             digest="base64"
         )
         headers["KC-API-PASSPHRASE"] = hmac_signature(

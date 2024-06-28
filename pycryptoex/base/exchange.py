@@ -17,7 +17,7 @@ else:
 if TYPE_CHECKING:
     from aiohttp.typedefs import JSONEncoder, JSONDecoder
     
-    from typing import Any, Dict, Optional
+    from typing import Any, Dict, Optional, Union
 
 
 class BaseExchange:
@@ -62,6 +62,7 @@ class BaseExchange:
         path: str,
         signed: bool = False,
         params: Optional[Dict[str, Any]] = None,
+        data: Optional[Union[Dict[str, Any], str]] = None,
         headers: Optional[Dict[str, Any]] = None,
         method: str = "GET",
         **request_kwargs: Any
@@ -75,6 +76,7 @@ class BaseExchange:
             self._sign(
                 path=path,
                 params=params,
+                data=data,
                 headers=headers,
                 method=method
             )
@@ -84,10 +86,16 @@ class BaseExchange:
         else:
             url = path
 
+        if data is not None:
+            if not isinstance(data, str):
+                data = self._json_encoder(data)
+            headers["Content-Type"] = "application/json"
+
         async with self._session.request(
             method=method,
             url=url,
             params=params,
+            data=data,
             raise_for_status=True,
             **request_kwargs
         ) as response:
