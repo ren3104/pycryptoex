@@ -7,6 +7,8 @@ from pathlib import Path
 import asyncio
 from typing import TYPE_CHECKING
 
+from .__version__ import __version__
+
 if TYPE_CHECKING:
     from typing import Optional
 
@@ -29,10 +31,10 @@ __all__ = [
 """.strip()
 
 
-async def download_client_from_github(name: str) -> Optional[str]:
+async def download_client_from_github(name: str, version: str) -> Optional[str]:
     async with aiohttp.request(
         method="GET",
-        url=f"{REPO_URL}/master/clients/{name}.py"
+        url=f"{REPO_URL}/{version}/clients/{name}.py"
     ) as response:
         if response.ok:
             with open(HOME_PATH / f"{name}.py", "w") as f:
@@ -47,7 +49,7 @@ async def main(args: argparse.Namespace) -> None:
     ]
 
     new_client_names = await asyncio.gather(*[
-        download_client_from_github(name.lower())
+        download_client_from_github(name.lower(), args.version)
         for name in args.names
         if not args.update and name.lower() not in client_names
     ])
@@ -76,6 +78,7 @@ def cli() -> None:
     parser.add_argument("names", type=str, nargs="+")
     parser.add_argument("-u", "--update", action="store_true")
     # -d --delete
+    parser.add_argument("-v", "--version", default=f"v{__version__}")
     args = parser.parse_args()
 
     asyncio.run(main(args))
