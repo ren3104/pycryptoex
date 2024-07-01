@@ -27,5 +27,5 @@ def hmac_signature(
     if digest == "hex":
         return hmac_obj.hexdigest()
     elif digest == "base64":
-        return b64encode(hmac_obj.digest())
+        return b64encode(hmac_obj.digest()).decode("utf-8")
     return hmac_obj.digest()

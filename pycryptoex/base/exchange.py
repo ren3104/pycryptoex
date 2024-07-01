@@ -88,10 +88,8 @@ class BaseExchange:
         else:
             url = path
 
-        if data is not None:
-            if not isinstance(data, str):
-                data = self._json_encoder(data)
-            headers["Content-Type"] = "application/json"
+        if data is not None and not isinstance(data, str):
+            data = self._json_encoder(data)
 
         async with self._session.request(
             method=method,

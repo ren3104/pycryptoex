@@ -59,15 +59,12 @@ class KuCoin(BaseExchange):
             raise AuthenticationError("passphrase")
 
         body = ""
-        if params is not None and len(params) != 0:
-            if method in ("GET", "DELETE"):
+        if method in ("GET", "DELETE"):
+            if params is not None and len(params) != 0:
                 path += "?" + urlencode(params)
                 params.clear()
-            else:
-                if data is None:
-                    data = {}
-                data.update(params)
-                params.clear()
+        else:
+            if data is not None and len(data) != 0:
                 body = data = self._json_encoder(data)
 
         timestamp = str(current_timestamp())
@@ -77,12 +74,12 @@ class KuCoin(BaseExchange):
             key=self.secret,
             msg=timestamp + method + path + body,
             digest="base64"
-        ).decode("utf-8")
+        )
         headers["KC-API-PASSPHRASE"] = hmac_signature(
             key=self.secret,
             msg=self.passphrase,
             digest="base64"
-        ).decode("utf-8")
+        )
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
 
