@@ -19,8 +19,7 @@ class KuCoin(BaseExchange):
     __slots__ = (
         "api_key",
         "secret",
-        "passphrase",
-        "_signed_passphrase"
+        "passphrase"
     )
 
     def __init__(
@@ -36,12 +35,6 @@ class KuCoin(BaseExchange):
         self.api_key = api_key
         self.secret = secret
         self.passphrase = passphrase
-        
-        self._signed_passphrase = hmac_signature(
-            key=self.secret,
-            msg=self.passphrase,
-            digest="base64"
-        )
 
         super().__init__(
             url=url,
@@ -82,7 +75,11 @@ class KuCoin(BaseExchange):
             msg=timestamp + method + path + body,
             digest="base64"
         )
-        headers["KC-API-PASSPHRASE"] = self._signed_passphrase
+        headers["KC-API-PASSPHRASE"] = hmac_signature(
+            key=self.secret,
+            msg=self.passphrase,
+            digest="base64"
+        )
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
 
