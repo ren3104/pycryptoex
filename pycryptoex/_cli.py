@@ -51,7 +51,7 @@ async def main(args: argparse.Namespace) -> None:
     new_client_names = await asyncio.gather(*[
         download_client_from_github(name.lower(), args.version)
         for name in args.names
-        if not args.update and name.lower() not in client_names
+        if args.update or name.lower() not in client_names
     ])
 
     class_names = []
