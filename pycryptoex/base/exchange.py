@@ -96,6 +96,7 @@ class BaseExchange:
             url=url,
             params=params,
             data=data,
+            headers=headers,
             **request_kwargs
         ) as response:
             json_data = await response.json(
