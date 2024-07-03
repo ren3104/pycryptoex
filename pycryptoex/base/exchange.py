@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from aiohttp import ClientSession
 
-import json
 from urllib.parse import urlparse
 import sys
 from typing import TYPE_CHECKING
 
 from ..__version__ import __version__
+from .utils import to_json, from_json
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -16,7 +16,6 @@ else:
 
 if TYPE_CHECKING:
     from aiohttp import ClientResponse
-    from aiohttp.typedefs import JSONEncoder, JSONDecoder
     
     from typing import Any, Dict, Optional, Union
 
@@ -24,26 +23,19 @@ if TYPE_CHECKING:
 class BaseExchange:
     __slots__ = (
         "url",
-        "_session",
-        "_json_encoder",
-        "_json_decoder"
+        "_session"
     )
 
     def __init__(
         self,
         url: str,
-        session: Optional[ClientSession] = None,
-        json_encoder: JSONEncoder = json.dumps,
-        json_decoder: JSONDecoder = json.loads
+        session: Optional[ClientSession] = None
     ) -> None:
         self.url = url
 
-        self._json_encoder = json_encoder
-        self._json_decoder = json_decoder
-
         if session is None:
             self._session = ClientSession(
-                json_serialize=self._json_encoder
+                json_serialize=to_json
             )
 
     def _sign(
@@ -89,7 +81,7 @@ class BaseExchange:
             url = path
 
         if data is not None and not isinstance(data, str):
-            data = self._json_encoder(data)
+            data = to_json(data)
 
         async with self._session.request(
             method=method,
@@ -101,7 +93,7 @@ class BaseExchange:
         ) as response:
             json_data = await response.json(
                 encoding="utf-8",
-                loads=self._json_decoder
+                loads=from_json
             )
 
             self._handle_errors(response, json_data)

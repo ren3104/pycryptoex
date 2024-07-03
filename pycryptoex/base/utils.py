@@ -4,10 +4,18 @@ import time
 import hmac
 import hashlib
 from base64 import b64encode
+import json
 from typing import TYPE_CHECKING
 
+try:
+    import orjson
+except ModuleNotFoundError:
+    HAS_ORJSON = False
+else:
+    HAS_ORJSON = True
+
 if TYPE_CHECKING:
-    from typing import Union
+    from typing import Any, Union
 
 
 def current_timestamp() -> int:
@@ -29,3 +37,18 @@ def hmac_signature(
     elif digest == "base64":
         return b64encode(hmac_obj.digest()).decode("utf-8")
     return hmac_obj.digest()
+
+
+if HAS_ORJSON:
+
+    def to_json(obj: Any) -> str:
+        return orjson.dumps(obj).decode("utf-8")
+
+    from_json = orjson.loads
+
+else:
+
+    def to_json(obj: Any) -> str:
+        return json.dumps(obj, separators=(",", ":"))
+
+    from_json = json.loads

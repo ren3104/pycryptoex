@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from urllib.parse import urlencode
-import json
 from typing import TYPE_CHECKING
 
 from pycryptoex.base.exchange import BaseExchange
 from pycryptoex.base.exceptions import AuthenticationError, ExchangeApiError
-from pycryptoex.base.utils import current_timestamp, hmac_signature
+from pycryptoex.base.utils import to_json, current_timestamp, hmac_signature
 
 if TYPE_CHECKING:
     from aiohttp import ClientSession, ClientResponse
-    from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
     from typing import Any, Dict, Optional, Union
 
@@ -28,9 +26,7 @@ class KuCoin(BaseExchange):
         secret: Optional[str] = None,
         passphrase: Optional[str] = None,
         url: str = "https://api.kucoin.com",
-        session: Optional[ClientSession] = None,
-        json_encoder: JSONEncoder = json.dumps,
-        json_decoder: JSONDecoder = json.loads
+        session: Optional[ClientSession] = None
     ) -> None:
         self.api_key = api_key
         self.secret = secret
@@ -38,9 +34,7 @@ class KuCoin(BaseExchange):
 
         super().__init__(
             url=url,
-            session=session,
-            json_encoder=json_encoder,
-            json_decoder=json_decoder
+            session=session
         )
 
     def _sign(
@@ -65,7 +59,7 @@ class KuCoin(BaseExchange):
                 params.clear()
         else:
             if data is not None and len(data) != 0:
-                body = data = self._json_encoder(data)
+                body = data = to_json(data)
 
         timestamp = str(current_timestamp())
 

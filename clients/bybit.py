@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from urllib.parse import urlencode
 import sys
 from typing import TYPE_CHECKING
@@ -16,7 +15,6 @@ else:
 
 if TYPE_CHECKING:
     from aiohttp import ClientSession
-    from aiohttp.typedefs import JSONEncoder, JSONDecoder
 
     from typing import Any, Dict, Optional, Union
 
@@ -37,8 +35,6 @@ class Bybit(BaseExchange):
         timestamp_offset: Optional[int] = None,
         url: str = "https://api.bytick.com",
         session: Optional[ClientSession] = None,
-        json_encoder: JSONEncoder = json.dumps,
-        json_decoder: JSONDecoder = json.loads
     ) -> None:
         self.api_key = api_key
         self.secret = secret
@@ -47,9 +43,7 @@ class Bybit(BaseExchange):
 
         super().__init__(
             url=url,
-            session=session,
-            json_encoder=json_encoder,
-            json_decoder=json_decoder
+            session=session
         )
 
     def _sign(
