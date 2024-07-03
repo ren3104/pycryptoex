@@ -41,9 +41,12 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "aiohttp",
-  "typing-extensions ; python_version < '3.11'",
+  "aiohttp>=3.3.0",
+  "typing-extensions>=4.0.0 ; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+speedup = ["orjson"]
 
 [tool.hatch.version]
 path = "pycryptoex/__version__.py"
