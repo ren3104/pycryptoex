@@ -5,7 +5,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from pycryptoex.base.exchange import BaseExchange
-from pycryptoex.base.exceptions import AuthenticationError
+from pycryptoex.base.exceptions import AuthenticationError, ExchangeApiError
 from pycryptoex.base.utils import current_timestamp, hmac_signature
 
 if sys.version_info >= (3, 11):
@@ -14,9 +14,9 @@ else:
     from typing_extensions import Self
 
 if TYPE_CHECKING:
-    from aiohttp import ClientSession
+    from aiohttp import ClientSession, ClientResponse
 
-    from typing import Any, Dict, Optional, Union
+    from typing import Any, Dict, Optional
 
 
 class Bybit(BaseExchange):
@@ -67,6 +67,14 @@ class Bybit(BaseExchange):
         )
         headers["X-BAPI-TIMESTAMP"] = str(current_timestamp() + (self.timestamp_offset or 0))
         headers["X-BAPI-RECV-WINDOW"] = self.recv_window
+    
+    def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
+        if isinstance(json_data, dict):
+            code = json_data.get("retCode")
+            if code != 0:
+                msg = json_data.get("retMsg")
+                if msg is not None:
+                    raise ExchangeApiError(code, msg)
     
     async def __aenter__(self) -> Self:
         if self.timestamp_offset is None:
