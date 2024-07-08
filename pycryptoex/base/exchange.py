@@ -34,9 +34,10 @@ class BaseExchange:
         self.url = url
 
         if session is None:
-            self._session = ClientSession(
+            session = ClientSession(
                 json_serialize=to_json
             )
+        self._session = session
 
     def _sign(
         self,
