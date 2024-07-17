@@ -1,4 +1,13 @@
 # PyCryptoEx
+<p align="center">
+  <a href="https://github.com/ren3104/pycryptoex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ren3104/pycryptoex" alt="GitHub license"></a>
+  <a href="https://pypi.org/project/pycryptoex"><img src="https://img.shields.io/pypi/v/pycryptoex?color=blue" alt="PyPi package version"></a>
+  <a href="https://pypi.org/project/pycryptoex"><img src="https://img.shields.io/pypi/pyversions/pycryptoex.svg" alt="Supported python versions"></a>
+</p>
+
+> [!CAUTION]
+> This project is currently in alpha version and may have critical changes
+
 A Python library providing a clients for interacting with various APIs of cryptocurrency exchanges for trading and accessing market data.
 
 ## Installation
