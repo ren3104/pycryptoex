@@ -46,5 +46,7 @@ async def main():
 ```
 
 ## Supported Crypto Exchanges
-- [Bybit](https://www.bybit.com)
-- [KuCoin](https://www.kucoin.com)
+| Exchange | Api Client | Websocket Stream Manager
+| --- | --- | --- |
+| [Bybit](https://www.bybit.com/invite?ref=0WXGNA5) | + | - |
+| [KuCoin](https://www.kucoin.com/r/rf/QBAAD3Y5) | + | - |
