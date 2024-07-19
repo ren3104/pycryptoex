@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiohttp import ClientSession
 
+import abc
 import asyncio
 from urllib.parse import urlparse
 import sys
@@ -20,8 +21,10 @@ if TYPE_CHECKING:
     
     from typing import Any, Dict, Optional, Union
 
+    from .websocket import BaseStreamManager
 
-class BaseExchange:
+
+class BaseExchange(metaclass=abc.ABCMeta):
     __slots__ = (
         "url",
         "_session"
@@ -40,6 +43,7 @@ class BaseExchange:
             )
         self._session = session
 
+    @abc.abstractmethod
     def _sign(
         self,
         path: str,
@@ -48,7 +52,7 @@ class BaseExchange:
         headers: Dict[str, Any] = {},
         method: str = "GET"
     ) -> None:
-        raise NotImplementedError
+        ...
     
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         pass
@@ -103,6 +107,9 @@ class BaseExchange:
             response.raise_for_status()
 
             return json_data
+    
+    async def create_websocket_stream(self, private: bool = False) -> BaseStreamManager:
+        raise NotImplementedError
     
     async def __aenter__(self) -> Self:
         return self
