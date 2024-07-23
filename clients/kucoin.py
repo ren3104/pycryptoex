@@ -132,13 +132,12 @@ class KuCoinStreamManager(BaseStreamManager):
                 json_data
             )
         elif type_ == "error":
-            self._set_listener_error(
-                json_data["id"],
-                ExchangeWebsocketError(
-                    json_data["code"],
-                    json_data["data"]
-                )
+            err = ExchangeWebsocketError(
+                json_data["code"],
+                json_data["data"]
             )
+            if not self._set_listener_error(json_data["id"], err):
+                await self._on_error(err)
     
     async def _subscribe(self, topic: str) -> None:
         id_ = self.get_new_id()
