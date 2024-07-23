@@ -124,6 +124,8 @@ class KuCoinStreamManager(BaseStreamManager):
             for callback in self._subscribed_topics.get(json_data["topic"]):
                 task = asyncio.create_task(callback(json_data))
                 task.add_done_callback(self._handle_callback_exception)
+        elif type_ == "pong":
+            self._last_pong = current_timestamp()
         elif type_ == "ack":
             self._set_listener_result(
                 json_data["id"],

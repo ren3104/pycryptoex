@@ -49,4 +49,4 @@ async def main():
 | Exchange | Api Client | Websocket Stream Manager
 | --- | --- | --- |
 | [Bybit](https://www.bybit.com/invite?ref=0WXGNA5) | + | - |
-| [KuCoin](https://www.kucoin.com/r/rf/QBAAD3Y5) | + | - |
+| [KuCoin](https://www.kucoin.com/r/rf/QBAAD3Y5) | + | + |
