@@ -25,6 +25,15 @@ For example:
 pycryptoex bybit kucoin
 ```
 
+### Install from Github main
+```shell
+pip install -U git+https://github.com/ren3104/pycryptoex@main
+```
+
+```shell
+pycryptoex [names ...] --update --version main
+```
+
 ## Quick Start
 ```python
 from pycryptoex import KuCoin, Bybit
