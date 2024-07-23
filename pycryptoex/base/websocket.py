@@ -141,12 +141,14 @@ class ReconnectingWebsocket:
                 self._last_pong is not None and
                 self._last_pong + self.ping_timeout < current_timestamp()
             ):
-                self._on_error(TimeoutError(f"Connection to {self.url} timed out due to a ping-pong keepalive missing on time"))
+                await self._on_error(TimeoutError(
+                    f"Connection to {self.url} timed out due to a ping-pong keepalive missing on time"
+                ))
             else:
                 try:
                     await self.ping()
                 except Exception as e:
-                    self._on_error(e)
+                    await self._on_error(e)
             await asyncio.sleep(self.ping_interval)
 
     def _handle_callback_exception(self, task: asyncio.Task) -> None:
@@ -167,11 +169,11 @@ class ReconnectingWebsocket:
             elif message.type == WSMsgType.PONG:
                 self._last_pong = current_timestamp()
             elif message.type == WSMsgType.CLOSE:
-                self._on_close(message.data)
+                await self._on_close(message.data)
             elif message.type == WSMsgType.CLOSED:
-                self._on_close(1000)
+                await self._on_close(1000)
             elif message.type == WSMsgType.ERROR:
-                self._on_error(Exception(message))
+                await self._on_error(Exception(message))
 
 
 class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
