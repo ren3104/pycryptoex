@@ -36,7 +36,13 @@ pycryptoex [names ...] --update --version main
 
 ## Quick Start
 ```python
+import asyncio
+
 from pycryptoex import KuCoin, Bybit
+
+
+async def handler(json_data):
+    print(json_data)
 
 
 async def main():
@@ -52,6 +58,29 @@ async def main():
     )
     async with bybit:
         await bybit.request(..., signed=True)
+
+    # Start the public websocket
+    kucoin_public_ws = await kucoin.create_websocket_stream()
+    await kucoin_public_ws.start()
+    # Subscribe handler to a public channel
+    topic = "/market/candles:BTC-USDT_1min"
+    await kucoin_public_ws.subscribe_callback(topic, handler)
+    # Unsubscribe handler from a public channel
+    await kucoin_public_ws.unsubscribe_callback(topic, handler)
+    # Unsubscribe all handlers from a public channel
+    await kucoin_public_ws.unsubscribe(topic)
+    # Stop the public websocket
+    await kucoin_public_ws.close()
+
+    # Start the private websocket
+    kucoin_private_ws = await kucoin.create_websocket_stream(private=True)
+    await kucoin_private_ws.start()
+    # Subscribe to private channels
+    await kucoin_private_ws.subscribe_callback("/account/balance", handler)
+
+    # Block until websockets close
+    while not kucoin_public_ws.closed or not kucoin_private_ws.closed:
+        await asyncio.sleep(0.1)
 ```
 
 ## Supported Crypto Exchanges
