@@ -104,7 +104,7 @@ class ReconnectingWebsocket:
             raise
 
     async def close(self, code: int = 1000) -> None:
-        if self.closed:
+        if not self.closed:
             await self._connection.close(code=code)
         
         if self._ping_loop_task is not None:
