@@ -18,8 +18,7 @@ if TYPE_CHECKING:
     Callback = Callable[[Any], Any]
 
 
-DEFAULT_PING_INTERVAL = 30
-DEFAULT_PING_TIMEOUT = 10
+DEFAULT_KEEPALIVE = 10_000 # ms
 
 
 class ReconnectingWebsocket:
@@ -33,8 +32,7 @@ class ReconnectingWebsocket:
         "_session",
         "_connection",
         "_receive_loop_task",
-        "ping_interval",
-        "ping_timeout",
+        "keepalive",
         "_ping_loop_task",
         "_last_pong"
     )
@@ -46,8 +44,7 @@ class ReconnectingWebsocket:
         on_start_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
-        ping_interval: int = DEFAULT_PING_INTERVAL,
-        ping_timeout: int = DEFAULT_PING_TIMEOUT,
+        keepalive: int = DEFAULT_KEEPALIVE,
         session: Optional[ClientSession] = None
     ) -> None:
         self.url = url
@@ -71,8 +68,7 @@ class ReconnectingWebsocket:
         self._connection: Optional[ClientWebSocketResponse] = None
         self._receive_loop_task: Optional[asyncio.Task] = None
 
-        self.ping_interval = ping_interval
-        self.ping_timeout = ping_timeout
+        self.keepalive = keepalive
         self._ping_loop_task: Optional[asyncio.Task] = None
         self._last_pong: Optional[int] = None
 
@@ -139,7 +135,7 @@ class ReconnectingWebsocket:
         while not self.closed:
             if (
                 self._last_pong is not None and
-                self._last_pong + self.ping_timeout < current_timestamp()
+                self._last_pong + self.keepalive < current_timestamp()
             ):
                 await self._on_error(TimeoutError(
                     f"Connection to {self.url} timed out due to a ping-pong keepalive missing on time"
@@ -149,7 +145,7 @@ class ReconnectingWebsocket:
                     await self.ping()
                 except Exception as e:
                     await self._on_error(e)
-            await asyncio.sleep(self.ping_interval)
+            await asyncio.sleep(self.keepalive / 1000)
 
     def _handle_callback_exception(self, task: asyncio.Task) -> None:
         if not task.cancelled():
@@ -189,8 +185,7 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
         on_start_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
-        ping_interval: int = DEFAULT_PING_INTERVAL,
-        ping_timeout: int = DEFAULT_PING_TIMEOUT,
+        keepalive: int = DEFAULT_KEEPALIVE,
         session: Optional[ClientSession] = None
     ) -> None:
         self._counter = itertools.count(0, 1).__next__
@@ -210,8 +205,7 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
             on_start_callback=on_start_callback,
             on_close_callback=on_close_callback,
             on_error_callback=on_error_callback,
-            ping_interval=ping_interval,
-            ping_timeout=ping_timeout,
+            keepalive=keepalive,
             session=session
         )
 
@@ -264,8 +258,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         on_start_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
-        ping_interval: int = DEFAULT_PING_INTERVAL,
-        ping_timeout: int = DEFAULT_PING_TIMEOUT,
+        keepalive: int = DEFAULT_KEEPALIVE,
         session: Optional[ClientSession] = None
     ) -> None:
         self._subscribed_topics: Dict[str, List[Callback]] = {}
@@ -276,8 +269,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
             on_start_callback=on_start_callback,
             on_close_callback=on_close_callback,
             on_error_callback=on_error_callback,
-            ping_interval=ping_interval,
-            ping_timeout=ping_timeout,
+            keepalive=keepalive,
             session=session
         )
     
