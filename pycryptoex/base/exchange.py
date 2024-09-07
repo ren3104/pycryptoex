@@ -4,7 +4,6 @@ from aiohttp import ClientSession
 
 import abc
 import asyncio
-from urllib.parse import urlparse
 import sys
 from typing import TYPE_CHECKING
 
@@ -73,25 +72,14 @@ class BaseExchange(metaclass=abc.ABCMeta):
         })
 
         if signed:
-            self._sign(
-                path=path,
-                params=params,
-                data=data,
-                headers=headers,
-                method=method
-            )
-
-        if len(urlparse(path).netloc) == 0:
-            url = self.url + path
-        else:
-            url = path
+            path, params, data, headers, method = self._sign(path, params, data, headers, method)
 
         if data is not None and not isinstance(data, str):
             data = to_json(data)
 
         async with self._session.request(
             method=method,
-            url=url,
+            url=self.url + path,
             params=params,
             data=data,
             headers=headers,

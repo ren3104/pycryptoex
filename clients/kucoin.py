@@ -83,6 +83,8 @@ class KuCoin(BaseExchange):
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
 
+        return path, params, data, headers, method
+
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         if isinstance(json_data, dict):
             code = json_data.get("code")

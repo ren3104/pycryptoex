@@ -16,7 +16,7 @@ else:
 if TYPE_CHECKING:
     from aiohttp import ClientSession, ClientResponse
 
-    from typing import Any, Dict, Optional
+    from typing import Any, Dict, Optional, Union
 
 
 class Bybit(BaseExchange):
@@ -48,9 +48,11 @@ class Bybit(BaseExchange):
 
     def _sign(
         self,
+        path: str,
         params: Optional[Dict[str, Any]] = None,
+        data: Optional[Union[Dict[str, Any], str]] = None,
         headers: Dict[str, Any] = {},
-        **kwargs: Any
+        method: str = "GET"
     ) -> None:
         if self.api_key is None:
             raise AuthenticationError("api_key")
@@ -67,6 +69,8 @@ class Bybit(BaseExchange):
         )
         headers["X-BAPI-TIMESTAMP"] = str(current_timestamp() + (self.timestamp_offset or 0))
         headers["X-BAPI-RECV-WINDOW"] = self.recv_window
+
+        return path, params, data, headers, method
     
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         if isinstance(json_data, dict):
