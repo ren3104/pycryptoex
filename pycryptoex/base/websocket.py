@@ -278,45 +278,47 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         return list(self._subscribed_topics.keys())
     
     @abc.abstractmethod
-    async def _subscribe(self, topic: str) -> None:
+    async def _subscribe(self, topic: str, private: bool = False) -> None:
         ...
     
     @abc.abstractmethod
-    async def _unsubscribe(self, topic: str) -> None:
+    async def _unsubscribe(self, topic: str, private: bool = False) -> None:
         ...
     
-    async def subscribe(self, topic: str) -> None:
+    async def subscribe(self, topic: str, private: bool = False) -> None:
         if topic in self._subscribed_topics:
             return
         
-        await self._subscribe(topic)
+        await self._subscribe(topic, private)
         
         self._subscribed_topics[topic] = []
     
     async def subscribe_callback(
         self,
         topic: str,
-        callbacks: Union[Callback, List[Callback]]
+        callbacks: Union[Callback, List[Callback]],
+        private: bool = False
     ) -> None:
-        await self.subscribe(topic)
+        await self.subscribe(topic, private)
 
         if callable(callbacks):
             self._subscribed_topics[topic].append(callbacks)
         else:
             self._subscribed_topics[topic].extend(callbacks)
     
-    async def unsubscribe(self, topic: str) -> None:
+    async def unsubscribe(self, topic: str, private: bool = False) -> None:
         if topic not in self._subscribed_topics:
             return
 
-        await self._unsubscribe(topic)
+        await self._unsubscribe(topic, private)
     
         del self._subscribed_topics[topic]
     
     async def unsubscribe_callback(
         self,
         topic: str,
-        callbacks: Union[Callback, List[Callback]]
+        callbacks: Union[Callback, List[Callback]],
+        private: bool = False
     ) -> None:
         if topic not in self._subscribed_topics:
             return
@@ -333,5 +335,5 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
                 pass
         
         if len(subscribed_topic) == 0:
-            await self.unsubscribe(topic)
+            await self.unsubscribe(topic, private)
 
