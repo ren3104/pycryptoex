@@ -138,20 +138,22 @@ class KuCoinStreamManager(BaseStreamManager):
             if not self._set_listener_error(json_data["id"], err):
                 await self._on_error(err)
     
-    async def _subscribe(self, topic: str) -> None:
+    async def _subscribe(self, topic: str, private: bool = False) -> None:
         id_ = self.get_new_id()
         await self.send_and_recv(id_, {
             "id": id_,
             "type": "subscribe",
             "topic": topic,
-            "response": True
+            "response": True,
+            "privateChannel": private
         })
     
-    async def _unsubscribe(self, topic: str) -> None:
+    async def _unsubscribe(self, topic: str, private: bool = False) -> None:
         id_ = self.get_new_id()
         await self.send_and_recv(id_, {
             "id": id_,
             "type": "unsubscribe",
             "topic": topic,
-            "response": True
+            "response": True,
+            "privateChannel": private
         })
