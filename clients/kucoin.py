@@ -103,7 +103,7 @@ class KuCoin(BaseExchange):
 
         return KuCoinStreamManager(
             url=f"{ws_server_info['endpoint']}?token={token_data['data']['token']}",
-            keepalive=ws_server_info["pingInterval"],
+            keepalive=ws_server_info["pingInterval"] // 1000,
             session=self._session
         )
 
