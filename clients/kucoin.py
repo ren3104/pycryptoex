@@ -115,30 +115,32 @@ class KuCoinStreamManager(BaseStreamManager):
             "type": "ping"
         }, dumps=to_json)
     
-    async def _handler(self, json_data: Any) -> None:
+    async def _on_message(self, data: Any) -> None:
         try:
-            type_ = json_data["type"]
+            type_ = data["type"]
         except KeyError:
-            return
+            pass
+        else:
+            if type_ == "message":
+                for callback in self._subscribed_topics.get(data["topic"]):
+                    task = asyncio.create_task(callback(data))
+                    task.add_done_callback(self._handle_callback_exception)
+            elif type_ == "pong":
+                self._last_pong = current_timestamp()
+            elif type_ == "ack":
+                self._set_listener_result(
+                    data["id"],
+                    data
+                )
+            elif type_ == "error":
+                err = ExchangeWebsocketError(
+                    data["code"],
+                    data["data"]
+                )
+                if not self._set_listener_error(data["id"], err):
+                    await self._on_error(err)
         
-        if type_ == "message":
-            for callback in self._subscribed_topics.get(json_data["topic"]):
-                task = asyncio.create_task(callback(json_data))
-                task.add_done_callback(self._handle_callback_exception)
-        elif type_ == "pong":
-            self._last_pong = current_timestamp()
-        elif type_ == "ack":
-            self._set_listener_result(
-                json_data["id"],
-                json_data
-            )
-        elif type_ == "error":
-            err = ExchangeWebsocketError(
-                json_data["code"],
-                json_data["data"]
-            )
-            if not self._set_listener_error(json_data["id"], err):
-                await self._on_error(err)
+        return await super()._on_message(data)
     
     async def _subscribe(self, topic: str, private: bool = False) -> None:
         id_ = self.get_new_id()
