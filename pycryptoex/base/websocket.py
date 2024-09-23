@@ -245,7 +245,10 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
 
 
 class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
-    __slots__ = ("_subscribed_topics")
+    __slots__ = (
+        "_subscribed_topic_handlers",
+        "_subscribed_topic_params"
+    )
 
     def __init__(
         self,
@@ -259,7 +262,8 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         auto_reconnect: bool = True,
         reconnection_codes: Iterable[int] = (1000, 1001)
     ) -> None:
-        self._subscribed_topics: Dict[str, List[Callback]] = {}
+        self._subscribed_topic_handlers: Dict[str, List[Callback]] = {}
+        self._subscribed_topic_params: Dict[str, Dict[str, Any]] = {}
 
         super().__init__(
             url=url,
@@ -275,55 +279,58 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
     
     @property
     def subscriptions(self) -> List[str]:
-        return list(self._subscribed_topics.keys())
+        return list(self._subscribed_topic_handlers.keys())
     
     @abc.abstractmethod
-    async def _subscribe(self, topic: str, private: bool = False) -> None:
+    async def _subscribe(self, topic: str, **params: Any) -> None:
         ...
     
     @abc.abstractmethod
-    async def _unsubscribe(self, topic: str, private: bool = False) -> None:
+    async def _unsubscribe(self, topic: str, **params: Any) -> None:
         ...
     
-    async def subscribe(self, topic: str, private: bool = False) -> None:
-        if topic in self._subscribed_topics:
+    async def subscribe(self, topic: str, **params: Any) -> None:
+        if topic in self._subscribed_topic_handlers:
             return
         
-        await self._subscribe(topic, private)
+        await self._subscribe(topic, **params)
         
-        self._subscribed_topics[topic] = []
+        if len(params) > 0:
+            self._subscribed_topic_params[topic] = params
+        self._subscribed_topic_handlers[topic] = []
     
     async def subscribe_callback(
         self,
         topic: str,
         callbacks: Union[Callback, List[Callback]],
-        private: bool = False
+        **params: Any
     ) -> None:
-        await self.subscribe(topic, private)
+        await self.subscribe(topic, **params)
 
         if callable(callbacks):
-            self._subscribed_topics[topic].append(callbacks)
+            self._subscribed_topic_handlers[topic].append(callbacks)
         else:
-            self._subscribed_topics[topic].extend(callbacks)
+            self._subscribed_topic_handlers[topic].extend(callbacks)
     
-    async def unsubscribe(self, topic: str, private: bool = False) -> None:
-        if topic not in self._subscribed_topics:
+    async def unsubscribe(self, topic: str, **params: Any) -> None:
+        if topic not in self._subscribed_topic_handlers:
             return
 
-        await self._unsubscribe(topic, private)
+        await self._unsubscribe(topic, **params)
     
-        del self._subscribed_topics[topic]
+        del self._subscribed_topic_handlers[topic]
+        del self._subscribed_topic_params[topic]
     
     async def unsubscribe_callback(
         self,
         topic: str,
         callbacks: Union[Callback, List[Callback]],
-        private: bool = False
+        **params: Any
     ) -> None:
-        if topic not in self._subscribed_topics:
+        if topic not in self._subscribed_topic_handlers:
             return
         
-        subscribed_topic = self._subscribed_topics[topic]
+        subscribed_topic = self._subscribed_topic_handlers[topic]
         
         if callable(callbacks):
             callbacks = [callbacks]
@@ -335,11 +342,21 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
                 pass
         
         if len(subscribed_topic) == 0:
-            await self.unsubscribe(topic, private)
+            await self.unsubscribe(topic, **params)
     
     def _handle_callback_exception(self, task: asyncio.Task) -> None:
         if not task.cancelled():
             exception = task.exception()
             if exception is not None:
                 asyncio.ensure_future(self._on_error(exception))
+    
+    async def restart(self) -> None:
+        await super().restart()
+
+        for topic in self.subscriptions:
+            params = self._subscribed_topic_params.get(topic)
+            if params is None:
+                await self._subscribe(topic)
+            else:
+                await self._subscribe(topic, **params)
 

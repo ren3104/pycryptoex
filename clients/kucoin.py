@@ -121,7 +121,7 @@ class KuCoinStreamManager(BaseStreamManager):
             pass
         else:
             if type_ == "message":
-                for callback in self._subscribed_topics.get(data["topic"]):
+                for callback in self._subscribed_topic_handlers.get(data["topic"]):
                     task = asyncio.create_task(callback(data))
                     task.add_done_callback(self._handle_callback_exception)
             elif type_ == "pong":
@@ -141,22 +141,22 @@ class KuCoinStreamManager(BaseStreamManager):
         
         return await super()._on_message(data)
     
-    async def _subscribe(self, topic: str, private: bool = False) -> None:
+    async def _subscribe(self, topic: str, **params: Any) -> None:
         id_ = self.get_new_id()
         await self.send_and_recv(id_, {
             "id": id_,
             "type": "subscribe",
             "topic": topic,
             "response": True,
-            "privateChannel": private
+            "privateChannel": params.get("private", False)
         })
     
-    async def _unsubscribe(self, topic: str, private: bool = False) -> None:
+    async def _unsubscribe(self, topic: str, **params: Any) -> None:
         id_ = self.get_new_id()
         await self.send_and_recv(id_, {
             "id": id_,
             "type": "unsubscribe",
             "topic": topic,
             "response": True,
-            "privateChannel": private
+            "privateChannel": params.get("private", False)
         })
