@@ -123,7 +123,7 @@ class KuCoinStreamManager(BaseStreamManager):
             if type_ == "message":
                 for callback in self._subscribed_topic_handlers.get(data["topic"]):
                     task = asyncio.create_task(callback(data))
-                    task.add_done_callback(self._handle_callback_exception)
+                    task.add_done_callback(self._handle_task_exception)
             elif type_ == "pong":
                 self._last_pong = current_timestamp()
             elif type_ == "ack":

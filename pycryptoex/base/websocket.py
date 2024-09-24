@@ -139,13 +139,15 @@ class ReconnectingWebsocket:
                 elif message.type == WSMsgType.CLOSE:
                     code = cast(int, message.data)
                     if self._auto_reconnect and code in self._reconnection_codes:
-                        asyncio.ensure_future(self.restart())
+                        task = asyncio.create_task(self.restart())
+                        task.add_done_callback(self._handle_task_exception)
                         break
                     else:
                         await self._on_close(code)
                 elif message.type == WSMsgType.CLOSED:
                     if self._auto_reconnect and 1000 in self._reconnection_codes:
-                        asyncio.ensure_future(self.restart())
+                        task = asyncio.create_task(self.restart())
+                        task.add_done_callback(self._handle_task_exception)
                         break
                     else:
                         await self._on_close(1000)
@@ -166,7 +168,7 @@ class ReconnectingWebsocket:
                 self._last_pong + self._keepalive * self._max_ping_pong_misses < current_timestamp()
             ):
                 await self._on_error(TimeoutError(
-                    f"Connection to {self.url} timed out due to a ping-pong keepalive missing on time"
+                    f"Connection to {self._url} timed out due to a ping-pong keepalive missing on time"
                 ))
             else:
                 try:
@@ -174,6 +176,12 @@ class ReconnectingWebsocket:
                 except Exception as e:
                     await self._on_error(e)
             await asyncio.sleep(self._keepalive / 1000)
+    
+    def _handle_task_exception(self, task: asyncio.Task) -> None:
+        if not task.cancelled():
+            exception = task.exception()
+            if exception is not None:
+                asyncio.ensure_future(self._on_error(exception))
 
 
 class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
@@ -343,12 +351,6 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         
         if len(subscribed_topic) == 0:
             await self.unsubscribe(topic, **params)
-    
-    def _handle_callback_exception(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
-            exception = task.exception()
-            if exception is not None:
-                asyncio.ensure_future(self._on_error(exception))
     
     async def restart(self) -> None:
         await super().restart()
