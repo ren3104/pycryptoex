@@ -23,6 +23,7 @@ class ReconnectingWebsocket:
         "_url",
         "_on_message_callback",
         "_on_connected_callback",
+        "_on_reconnect_callback",
         "_on_close_callback",
         "_on_error_callback",
         "_keepalive",
@@ -41,6 +42,7 @@ class ReconnectingWebsocket:
         url: str,
         on_message_callback: Optional[Any] = None,
         on_connected_callback: Optional[Any] = None,
+        on_reconnect_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
         keepalive: int = 10,
@@ -52,6 +54,7 @@ class ReconnectingWebsocket:
 
         self._on_message_callback = on_message_callback
         self._on_connected_callback = on_connected_callback
+        self._on_reconnect_callback = on_reconnect_callback
         self._on_close_callback = on_close_callback
         self._on_error_callback = on_error_callback
 
@@ -111,6 +114,9 @@ class ReconnectingWebsocket:
             await asyncio.sleep(0.25)
     
     async def restart(self) -> None:
+        if self._on_reconnect_callback is not None:
+            await self._on_reconnect_callback(self)
+
         await self.stop()
         await self.start()
 
@@ -124,9 +130,7 @@ class ReconnectingWebsocket:
             return
 
         if self._on_close_callback is not None:
-            flag = await self._on_close_callback(self, code)
-            if flag:
-                return
+            await self._on_close_callback(self, code)
         
         await self.stop(code)
     
@@ -189,6 +193,7 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
         url: str,
         on_message_callback: Optional[Any] = None,
         on_connected_callback: Optional[Any] = None,
+        on_reconnect_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
         keepalive: int = 10,
@@ -203,6 +208,7 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
             url=url,
             on_message_callback=on_message_callback,
             on_connected_callback=on_connected_callback,
+            on_reconnect_callback=on_reconnect_callback,
             on_close_callback=on_close_callback,
             on_error_callback=on_error_callback,
             keepalive=keepalive,
@@ -257,6 +263,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         url: str,
         on_message_callback: Optional[Any] = None,
         on_connected_callback: Optional[Any] = None,
+        on_reconnect_callback: Optional[Any] = None,
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
         keepalive: int = 10,
@@ -271,6 +278,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
             url=url,
             on_message_callback=on_message_callback,
             on_connected_callback=on_connected_callback,
+            on_reconnect_callback=on_reconnect_callback,
             on_close_callback=on_close_callback,
             on_error_callback=on_error_callback,
             keepalive=keepalive,
