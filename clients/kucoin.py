@@ -16,7 +16,9 @@ from pycryptoex.base.utils import to_json, current_timestamp, hmac_signature
 if TYPE_CHECKING:
     from aiohttp import ClientSession, ClientResponse
 
-    from typing import Any, Dict, Optional, Union
+    from typing import Any, Tuple, Dict, Optional, Union
+
+    from pycryptoex.base.websocket import ReconnectingWebsocket
 
 
 class KuCoin(BaseExchange):
@@ -94,16 +96,34 @@ class KuCoin(BaseExchange):
                     raise ExchangeApiError(code, msg)
 
     async def create_websocket_stream(self, private: bool = False) -> KuCoinStreamManager:
-        if private:
-            token_data = await self.request("/api/v1/bullet-private", method="POST", signed=True)
-        else:
-            token_data = await self.request("/api/v1/bullet-public", method="POST")
+        async def _get_conn_info() -> Tuple[str, int]:
+            if private:
+                token_data = await self.request("/api/v1/bullet-private", method="POST", signed=True)
+            else:
+                token_data = await self.request("/api/v1/bullet-public", method="POST")
 
-        ws_server_info = token_data["data"]["instanceServers"][0]
+            ws_server_info = token_data["data"]["instanceServers"][0]
+
+            return (
+                f"{ws_server_info['endpoint']}?token={token_data['data']['token']}",
+                ws_server_info["pingInterval"]
+            )
+
+        async def _on_close(ws: ReconnectingWebsocket, code: int) -> bool:
+            if code in ws._reconnection_codes:
+                ws._url, ws._keepalive = await _get_conn_info()
+
+                await ws.restart()
+
+                return True
+
+        url, keepalive_ms = await _get_conn_info()
 
         return KuCoinStreamManager(
-            url=f"{ws_server_info['endpoint']}?token={token_data['data']['token']}",
-            keepalive=ws_server_info["pingInterval"] // 1000
+            url=url,
+            keepalive=keepalive_ms // 1000,
+            on_close_callback=_on_close,
+            auto_reconnect=False
         )
 
 

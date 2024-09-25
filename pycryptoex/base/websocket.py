@@ -97,11 +97,11 @@ class ReconnectingWebsocket:
         if not self.closed:
             await self._connection.close(code=code)
 
-        if self._receive_loop_task is not None:
-            self._receive_loop_task.cancel()
-
         if self._ping_loop_task is not None:
             self._ping_loop_task.cancel()
+
+        if self._receive_loop_task is not None:
+            self._receive_loop_task.cancel()
         
         if self._session is not None and not self._session.closed:
             await self._session.close()
@@ -119,42 +119,36 @@ class ReconnectingWebsocket:
             await self._on_message_callback(self, data)
 
     async def _on_close(self, code: int) -> None:
+        if self._auto_reconnect and code in self._reconnection_codes:
+            await self.restart()
+            return
+
         if self._on_close_callback is not None:
-            await self._on_close_callback(self, code)
+            flag = await self._on_close_callback(self, code)
+            if flag:
+                return
+        
         await self.stop(code)
     
     async def _on_error(self, error: Exception) -> None:
         if self._on_error_callback is not None:
             await self._on_error_callback(self, error)
+        
         await self.stop(1006)
     
     async def _receive_loop(self) -> None:
         while not self.closed:
-            try:
-                message = await self._connection.receive()
-                if message.type == WSMsgType.TEXT:
-                    await self._on_message(from_json(message.data))
-                elif message.type == WSMsgType.PONG:
-                    self._last_pong = current_timestamp()
-                elif message.type == WSMsgType.CLOSE:
-                    code = cast(int, message.data)
-                    if self._auto_reconnect and code in self._reconnection_codes:
-                        task = asyncio.create_task(self.restart())
-                        task.add_done_callback(self._handle_task_exception)
-                        break
-                    else:
-                        await self._on_close(code)
-                elif message.type == WSMsgType.CLOSED:
-                    if self._auto_reconnect and 1000 in self._reconnection_codes:
-                        task = asyncio.create_task(self.restart())
-                        task.add_done_callback(self._handle_task_exception)
-                        break
-                    else:
-                        await self._on_close(1000)
-                elif message.type == WSMsgType.ERROR:
-                    await self._on_error(Exception(message))
-            except Exception as e:
-                await self._on_error(e)
+            message = await self._connection.receive()
+            if message.type == WSMsgType.TEXT:
+                await self._on_message(from_json(message.data))
+            elif message.type == WSMsgType.PONG:
+                self._last_pong = current_timestamp()
+            elif message.type == WSMsgType.CLOSE:
+                asyncio.ensure_future(self._on_close(cast(int, message.data)))
+            elif message.type == WSMsgType.CLOSED:
+                asyncio.ensure_future(self._on_close(1000))
+            elif message.type == WSMsgType.ERROR:
+                asyncio.ensure_future(self._on_error(Exception(message)))
 
     async def ping(self) -> None:
         # If you change this function, then don't forget
