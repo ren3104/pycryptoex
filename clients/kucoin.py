@@ -117,8 +117,7 @@ class KuCoin(BaseExchange):
         return KuCoinStreamManager(
             url=url,
             keepalive=keepalive_ms // 1000,
-            on_reconnect_callback=_on_reconnect,
-            auto_reconnect=False
+            on_reconnect_callback=_on_reconnect
         )
 
 
