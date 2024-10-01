@@ -70,6 +70,11 @@ class ReconnectingWebsocket:
         self._connection: Optional[ClientWebSocketResponse] = None
         self._receive_loop_task: Optional[asyncio.Task] = None
 
+        self._post_init()
+
+    def _post_init(self) -> None:
+        pass
+
     @property
     def closed(self) -> bool:
         return self._connection is None or self._connection.closed
@@ -147,12 +152,14 @@ class ReconnectingWebsocket:
                 await self._on_message(from_json(message.data))
             elif message.type == WSMsgType.PONG:
                 self._last_pong = current_timestamp()
-            elif message.type == WSMsgType.CLOSE:
-                asyncio.ensure_future(self._on_close(cast(int, message.data)))
-            elif message.type == WSMsgType.CLOSED:
-                asyncio.ensure_future(self._on_close(1000))
-            elif message.type == WSMsgType.ERROR:
-                asyncio.ensure_future(self._on_error(Exception(message)))
+            else:
+                if message.type == WSMsgType.CLOSE:
+                    asyncio.ensure_future(self._on_close(cast(int, message.data)))
+                elif message.type == WSMsgType.CLOSED:
+                    asyncio.ensure_future(self._on_close(1000))
+                elif message.type == WSMsgType.ERROR:
+                    asyncio.ensure_future(self._on_error(Exception(message)))
+                break
 
     async def ping(self) -> None:
         # If you change this function, then don't forget
@@ -165,21 +172,14 @@ class ReconnectingWebsocket:
                 self._last_pong is not None and
                 self._last_pong + self._keepalive * self._max_ping_pong_misses < current_timestamp()
             ):
-                await self._on_error(TimeoutError(
-                    f"Connection to {self._url} timed out due to a ping-pong keepalive missing on time"
-                ))
+                asyncio.ensure_future(self.restart())
+                break
             else:
                 try:
                     await self.ping()
                 except Exception as e:
                     await self._on_error(e)
             await asyncio.sleep(self._keepalive / 1000)
-    
-    def _handle_task_exception(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
-            exception = task.exception()
-            if exception is not None:
-                asyncio.ensure_future(self._on_error(exception))
 
 
 class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
@@ -188,34 +188,10 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
         "_listeners"
     )
 
-    def __init__(
-        self,
-        url: str,
-        on_message_callback: Optional[Any] = None,
-        on_connected_callback: Optional[Any] = None,
-        on_reconnect_callback: Optional[Any] = None,
-        on_close_callback: Optional[Any] = None,
-        on_error_callback: Optional[Any] = None,
-        keepalive: int = 10,
-        max_ping_pong_misses: int = 2,
-        auto_reconnect: bool = True,
-        reconnection_codes: Iterable[int] = (1000, 1001)
-    ) -> None:
+    def _post_init(self) -> None:
+        super()._post_init()
         self._counter = itertools.count(0, 1).__next__
         self._listeners: Dict[str, asyncio.Future] = {}
-
-        super().__init__(
-            url=url,
-            on_message_callback=on_message_callback,
-            on_connected_callback=on_connected_callback,
-            on_reconnect_callback=on_reconnect_callback,
-            on_close_callback=on_close_callback,
-            on_error_callback=on_error_callback,
-            keepalive=keepalive,
-            max_ping_pong_misses=max_ping_pong_misses,
-            auto_reconnect=auto_reconnect,
-            reconnection_codes=reconnection_codes
-        )
 
     def get_new_id(self) -> str:
         return str(self._counter())
@@ -258,34 +234,10 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
         "_subscribed_topic_params"
     )
 
-    def __init__(
-        self,
-        url: str,
-        on_message_callback: Optional[Any] = None,
-        on_connected_callback: Optional[Any] = None,
-        on_reconnect_callback: Optional[Any] = None,
-        on_close_callback: Optional[Any] = None,
-        on_error_callback: Optional[Any] = None,
-        keepalive: int = 10,
-        max_ping_pong_misses: int = 2,
-        auto_reconnect: bool = True,
-        reconnection_codes: Iterable[int] = (1000, 1001)
-    ) -> None:
+    def _post_init(self) -> None:
+        super()._post_init()
         self._subscribed_topic_handlers: Dict[str, List[Callback]] = {}
         self._subscribed_topic_params: Dict[str, Dict[str, Any]] = {}
-
-        super().__init__(
-            url=url,
-            on_message_callback=on_message_callback,
-            on_connected_callback=on_connected_callback,
-            on_reconnect_callback=on_reconnect_callback,
-            on_close_callback=on_close_callback,
-            on_error_callback=on_error_callback,
-            keepalive=keepalive,
-            max_ping_pong_misses=max_ping_pong_misses,
-            auto_reconnect=auto_reconnect,
-            reconnection_codes=reconnection_codes
-        )
     
     @property
     def subscriptions(self) -> List[str]:
@@ -363,4 +315,10 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
                 await self._subscribe(topic)
             else:
                 await self._subscribe(topic, **params)
+    
+    def _handle_task_exception(self, task: asyncio.Task) -> None:
+        if not task.cancelled():
+            exception = task.exception()
+            if exception is not None:
+                asyncio.ensure_future(self._on_error(exception))
 
