@@ -46,7 +46,7 @@ class ReconnectingWebsocket:
         on_error_callback: Optional[Any] = None,
         keepalive: int = 10,
         auto_reconnect: bool = True,
-        reconnection_codes: Iterable[int] = (1000, 1001)
+        reconnection_codes: Iterable[int] = (1000, 1001, 1005)
     ) -> None:
         self._url = url
 
@@ -277,8 +277,11 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
 
         await self._unsubscribe(topic, **params)
     
-        del self._subscribed_topic_handlers[topic]
-        del self._subscribed_topic_params[topic]
+        try:
+            del self._subscribed_topic_handlers[topic]
+            del self._subscribed_topic_params[topic]
+        except KeyError:
+            pass
     
     async def unsubscribe_callback(
         self,
