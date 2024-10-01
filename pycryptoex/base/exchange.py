@@ -18,7 +18,7 @@ else:
 if TYPE_CHECKING:
     from aiohttp import ClientResponse
     
-    from typing import Any, Dict, Optional, Union
+    from typing import Any, Optional, Union
 
     from .websocket import BaseStreamManager
 
@@ -51,11 +51,11 @@ class BaseExchange(metaclass=abc.ABCMeta):
     def _sign(
         self,
         path: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Union[Dict[str, Any], str]] = None,
-        headers: Dict[str, Any] = {},
+        params: Optional[dict[str, Any]] = None,
+        data: Optional[Union[dict[str, Any], str]] = None,
+        headers: dict[str, Any] = {},
         method: str = "GET"
-    ) -> None:
+    ) -> tuple[Any, ...]:
         ...
     
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
@@ -65,9 +65,9 @@ class BaseExchange(metaclass=abc.ABCMeta):
         self,
         path: str,
         signed: bool = False,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Union[Dict[str, Any], str]] = None,
-        headers: Dict[str, Any] = {},
+        params: Optional[dict[str, Any]] = None,
+        data: Optional[Union[dict[str, Any], str]] = None,
+        headers: dict[str, Any] = {},
         method: str = "GET",
         **request_kwargs: Any
     ) -> Any:

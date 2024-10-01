@@ -16,7 +16,7 @@ from pycryptoex.base.utils import to_json, current_timestamp, hmac_signature
 if TYPE_CHECKING:
     from aiohttp import ClientSession, ClientResponse
 
-    from typing import Any, Tuple, Dict, Optional, Union
+    from typing import Any, Optional, Union
 
     from pycryptoex.base.websocket import ReconnectingWebsocket
 
@@ -56,11 +56,11 @@ class KuCoin(BaseExchange):
     def _sign(
         self,
         path: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Union[Dict[str, Any], str]] = None,
-        headers: Dict[str, Any] = {},
+        params: Optional[dict[str, Any]] = None,
+        data: Optional[Union[dict[str, Any], str]] = None,
+        headers: dict[str, Any] = {},
         method: str = "GET"
-    ) -> None:
+    ) -> tuple[Any, ...]:
         if self.api_key is None:
             raise AuthenticationError("api_key")
         elif self.secret is None:
@@ -104,7 +104,7 @@ class KuCoin(BaseExchange):
                     raise ExchangeApiError(code, msg)
 
     async def create_websocket_stream(self, private: bool = False) -> KuCoinStreamManager:
-        async def _get_conn_info() -> Tuple[str, int]:
+        async def _get_conn_info() -> tuple[str, int]:
             if private:
                 token_data = await self.request("/api/v1/bullet-private", method="POST", signed=True)
             else:

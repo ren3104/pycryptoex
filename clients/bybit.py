@@ -16,7 +16,7 @@ else:
 if TYPE_CHECKING:
     from aiohttp import ClientSession, ClientResponse
 
-    from typing import Any, Dict, Optional, Union
+    from typing import Any, Optional, Union
 
 
 class Bybit(BaseExchange):
@@ -56,11 +56,11 @@ class Bybit(BaseExchange):
     def _sign(
         self,
         path: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Union[Dict[str, Any], str]] = None,
-        headers: Dict[str, Any] = {},
+        params: Optional[dict[str, Any]] = None,
+        data: Optional[Union[dict[str, Any], str]] = None,
+        headers: dict[str, Any] = {},
         method: str = "GET"
-    ) -> None:
+    ) -> tuple[Any, ...]:
         if self.api_key is None:
             raise AuthenticationError("api_key")
         elif self.secret is None:

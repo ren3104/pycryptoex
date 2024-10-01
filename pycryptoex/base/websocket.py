@@ -13,7 +13,8 @@ from .utils import current_timestamp, to_json, from_json
 if TYPE_CHECKING:
     from aiohttp import ClientWebSocketResponse
 
-    from typing import Any, Optional, Union, List, Dict, Callable, Iterable
+    from collections.abc import Callable, Iterable
+    from typing import Any, Optional, Union
 
     Callback = Callable[[Any], Any]
 
@@ -188,7 +189,7 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
     def _post_init(self) -> None:
         super()._post_init()
         self._counter = itertools.count(0, 1).__next__
-        self._listeners: Dict[str, asyncio.Future] = {}
+        self._listeners: dict[str, asyncio.Future] = {}
 
     def get_new_id(self) -> str:
         return str(self._counter())
@@ -223,11 +224,11 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
 
     def _post_init(self) -> None:
         super()._post_init()
-        self._subscribed_topic_handlers: Dict[str, List[Callback]] = {}
-        self._subscribed_topic_params: Dict[str, Dict[str, Any]] = {}
+        self._subscribed_topic_handlers: dict[str, list[Callback]] = {}
+        self._subscribed_topic_params: dict[str, dict[str, Any]] = {}
     
     @property
-    def subscriptions(self) -> List[str]:
+    def subscriptions(self) -> list[str]:
         return list(self._subscribed_topic_handlers.keys())
     
     @abc.abstractmethod
@@ -251,7 +252,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
     async def subscribe_callback(
         self,
         topic: str,
-        callbacks: Union[Callback, List[Callback]],
+        callbacks: Union[Callback, list[Callback]],
         **params: Any
     ) -> None:
         await self.subscribe(topic, **params)
@@ -276,7 +277,7 @@ class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
     async def unsubscribe_callback(
         self,
         topic: str,
-        callbacks: Union[Callback, List[Callback]],
+        callbacks: Union[Callback, list[Callback]],
         **params: Any
     ) -> None:
         if topic not in self._subscribed_topic_handlers:
