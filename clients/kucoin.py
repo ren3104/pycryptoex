@@ -45,6 +45,14 @@ class KuCoin(BaseExchange):
             session=session
         )
 
+    @property
+    def authorized(self) -> bool:
+        return not (
+            self.api_key is None
+            or self.secret is None
+            or self.passphrase is None
+        )
+
     def _sign(
         self,
         path: str,

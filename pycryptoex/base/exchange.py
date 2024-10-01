@@ -42,6 +42,11 @@ class BaseExchange(metaclass=abc.ABCMeta):
             )
         self._session = session
 
+    @property
+    @abc.abstractmethod
+    def authorized(self) -> bool:
+        ...
+
     @abc.abstractmethod
     def _sign(
         self,
