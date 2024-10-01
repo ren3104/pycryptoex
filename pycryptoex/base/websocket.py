@@ -193,23 +193,13 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
     def get_new_id(self) -> str:
         return str(self._counter())
     
-    def _pop_listener_future(self, id_: str) -> Optional[asyncio.Future]:
-        try:
-            return self._listeners.pop(id_)
-        except KeyError:
-            pass
-    
-    def _set_listener_result(self, id_: str, data: Any) -> bool:
-        future = self._pop_listener_future(id_)
+    def _set_listener_result(self, id_: str, result: Any) -> bool:
+        future = self._listeners.pop(id_, None)
         if future is not None and not future.done():
-            future.set_result(data)
-            return True
-        return False
-
-    def _set_listener_error(self, id_: str, error: Exception) -> bool:
-        future = self._pop_listener_future(id_)
-        if future is not None and not future.done():
-            future.set_exception(error)
+            if isinstance(result, BaseException):
+                future.set_exception(result)
+            else:
+                future.set_result(result)
             return True
         return False
 

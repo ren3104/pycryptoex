@@ -149,17 +149,11 @@ class KuCoinStreamManager(BaseStreamManager):
             elif type_ == "pong":
                 self._last_pong = current_timestamp()
             elif type_ == "ack":
-                self._set_listener_result(
-                    data["id"],
-                    data
-                )
+                self._set_listener_result(data["id"], data)
             elif type_ == "error":
-                err = ExchangeWebsocketError(
-                    data["code"],
-                    data["data"]
-                )
-                if not self._set_listener_error(data["id"], err):
-                    await self._on_error(err)
+                err = ExchangeWebsocketError(data["code"], data["data"])
+                if not self._set_listener_result(data["id"], err):
+                    asyncio.ensure_future(self._on_error(err))
         
         return await super()._on_message(data)
     
