@@ -27,7 +27,6 @@ class ReconnectingWebsocket:
         "_on_close_callback",
         "_on_error_callback",
         "_keepalive",
-        "_max_ping_pong_misses",
         "_ping_loop_task",
         "_last_pong",
         "_auto_reconnect",
@@ -46,7 +45,6 @@ class ReconnectingWebsocket:
         on_close_callback: Optional[Any] = None,
         on_error_callback: Optional[Any] = None,
         keepalive: int = 10,
-        max_ping_pong_misses: int = 2,
         auto_reconnect: bool = True,
         reconnection_codes: Iterable[int] = (1000, 1001)
     ) -> None:
@@ -59,7 +57,6 @@ class ReconnectingWebsocket:
         self._on_error_callback = on_error_callback
 
         self._keepalive = keepalive * 1000
-        self._max_ping_pong_misses = max_ping_pong_misses
         self._ping_loop_task: Optional[asyncio.Task] = None
         self._last_pong: Optional[int] = None
 
@@ -170,7 +167,7 @@ class ReconnectingWebsocket:
         while not self.closed:
             if (
                 self._last_pong is not None and
-                self._last_pong + self._keepalive * self._max_ping_pong_misses < current_timestamp()
+                self._last_pong + self._keepalive < current_timestamp()
             ):
                 asyncio.ensure_future(self.restart())
                 break
