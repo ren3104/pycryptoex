@@ -143,8 +143,11 @@ class KuCoinStreamManager(BaseStreamManager):
             pass
         else:
             if type_ == "message":
-                handlers = self._subscribed_topic_handlers.get(data["topic"])
-                if handlers is not None:
+                try:
+                    handlers = self._subscribed_topic_handlers[data["topic"]]
+                except KeyError:
+                    pass
+                else:
                     for callback in handlers:
                         task = asyncio.create_task(callback(data))
                         task.add_done_callback(self._handle_task_exception)
@@ -157,7 +160,7 @@ class KuCoinStreamManager(BaseStreamManager):
                 if not self._set_listener_result(data["id"], err):
                     asyncio.ensure_future(self._on_error(err))
 
-        return await super()._on_message(data)
+        await super()._on_message(data)
 
     async def _subscribe(self, topic: str, **params: Any) -> None:
         await self.send_and_recv({
