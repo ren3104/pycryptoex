@@ -132,7 +132,7 @@ class KuCoin(BaseExchange):
 class KuCoinStreamManager(BaseStreamManager):
     async def ping(self) -> None:
         await self._connection.send_json({
-            "id": self.get_new_id(),
+            self.DEFAULT_ID_KEY: self.get_new_id(),
             "type": "ping"
         }, dumps=to_json)
     
@@ -158,9 +158,7 @@ class KuCoinStreamManager(BaseStreamManager):
         return await super()._on_message(data)
     
     async def _subscribe(self, topic: str, **params: Any) -> None:
-        id_ = self.get_new_id()
-        await self.send_and_recv(id_, {
-            "id": id_,
+        await self.send_and_recv({
             "type": "subscribe",
             "topic": topic,
             "response": True,
@@ -168,9 +166,7 @@ class KuCoinStreamManager(BaseStreamManager):
         })
     
     async def _unsubscribe(self, topic: str, **params: Any) -> None:
-        id_ = self.get_new_id()
-        await self.send_and_recv(id_, {
-            "id": id_,
+        await self.send_and_recv({
             "type": "unsubscribe",
             "topic": topic,
             "response": True,

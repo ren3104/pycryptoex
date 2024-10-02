@@ -176,23 +176,26 @@ class ReconnectingWebsocket:
                 try:
                     await self.ping()
                 except Exception as e:
-                    await self._on_error(e)
+                    asyncio.ensure_future(self._on_error(e))
             await asyncio.sleep(self._keepalive / 1000)
 
 
 class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
     __slots__ = (
-        "_counter",
+        "_last_id",
         "_listeners"
     )
 
+    DEFAULT_ID_KEY = "id"
+
     def _post_init(self) -> None:
         super()._post_init()
-        self._counter = itertools.count(0, 1).__next__
+        self._last_id: int = 0
         self._listeners: dict[str, asyncio.Future] = {}
 
     def get_new_id(self) -> str:
-        return str(self._counter())
+        id_ = self._last_id = self._last_id + 1
+        return str(id_)
     
     def _set_listener_result(self, id_: str, result: Any) -> bool:
         future = self._listeners.pop(id_, None)
@@ -204,9 +207,14 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
             return True
         return False
 
-    async def send_and_recv(self, id_: str, data: Any) -> Any:
+    async def send_and_recv(self, data: Any) -> Any:
         if self.closed:
             raise WebsocketClosedError()
+        
+        try:
+            id_ = data[self.DEFAULT_ID_KEY]
+        except KeyError:
+            id_ = data[self.DEFAULT_ID_KEY] = self.get_new_id()
         
         future = asyncio.get_running_loop().create_future()
         self._listeners[id_] = future
