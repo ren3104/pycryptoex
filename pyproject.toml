@@ -49,22 +49,47 @@ dependencies = [
 
 [project.optional-dependencies]
 speedup = ["orjson"]
-
-[tool.hatch.version]
-path = "pycryptoex/__version__.py"
+fmt = ["mypy"]
+dev = ["pre-commit", "ruff"]
 
 [project.urls]
 Homepage = "https://github.com/ren3104/pycryptoex"
 Repository = "https://github.com/ren3104/pycryptoex"
 "Bug Tracker" = "https://github.com/ren3104/pycryptoex/issues"
 
+[project.scripts]
+pycryptoex = "pycryptoex._cli:cli"
+
+[tool.hatch.version]
+path = "pycryptoex/__version__.py"
+
 [tool.hatch.build.targets.sdist]
-exclude = [
-  "/clients",
-]
+exclude = ["/clients"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pycryptoex"]
 
-[project.scripts]
-pycryptoex = "pycryptoex._cli:cli"
+[tool.hatch.envs.default]
+features = ["dev", "fmt"]
+post-install-commands = ["pre-commit install"]
+
+[tool.hatch.envs.hatch-static-analysis]
+config-path = "none"
+dependencies = ["ruff"]
+features = ["fmt"]
+
+[tool.hatch.envs.hatch-static-analysis.scripts]
+format-check = "ruff format{env:HATCH_FMT_ARGS:} --check --diff {args:.}"
+format-fix = "ruff format{env:HATCH_FMT_ARGS:} {args:.}"
+lint-check = [
+  "ruff check{env:HATCH_FMT_ARGS:} {args:.}",
+  "mypy {args:.}",
+]
+lint-fix = [
+    "ruff check{env:HATCH_FMT_ARGS:} --fix {args:.}",
+    "mypy {args:.}",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+warn_no_return = false
