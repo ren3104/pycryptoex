@@ -3,6 +3,8 @@
   <a href="https://github.com/ren3104/pycryptoex/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ren3104/pycryptoex" alt="GitHub license"></a>
   <a href="https://pypi.org/project/pycryptoex"><img src="https://img.shields.io/pypi/v/pycryptoex?color=blue" alt="PyPi package version"></a>
   <a href="https://pypi.org/project/pycryptoex"><img src="https://img.shields.io/pypi/pyversions/pycryptoex.svg" alt="Supported python versions"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="linting - Ruff"></a>
+  <a href="https://github.com/python/mypy"><img src="https://img.shields.io/badge/types-Mypy-blue.svg" alt="types - Mypy"></a>
 </p>
 
 > [!CAUTION]
