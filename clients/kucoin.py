@@ -131,11 +131,11 @@ class KuCoin(BaseExchange):
 
 class KuCoinStreamManager(BaseStreamManager):
     async def ping(self) -> None:
-        await self._connection.send_json({
+        await self._connection.send_json({ # type: ignore
             self.DEFAULT_ID_KEY: self.get_new_id(),
             "type": "ping"
         }, dumps=to_json)
-    
+
     async def _on_message(self, data: Any) -> None:
         try:
             type_ = data["type"]
@@ -143,9 +143,11 @@ class KuCoinStreamManager(BaseStreamManager):
             pass
         else:
             if type_ == "message":
-                for callback in self._subscribed_topic_handlers.get(data["topic"]):
-                    task = asyncio.create_task(callback(data))
-                    task.add_done_callback(self._handle_task_exception)
+                handlers = self._subscribed_topic_handlers.get(data["topic"])
+                if handlers is not None:
+                    for callback in handlers:
+                        task = asyncio.create_task(callback(data))
+                        task.add_done_callback(self._handle_task_exception)
             elif type_ == "pong":
                 self._last_pong = current_timestamp()
             elif type_ == "ack":
@@ -154,9 +156,9 @@ class KuCoinStreamManager(BaseStreamManager):
                 err = ExchangeWebsocketError(data["code"], data["data"])
                 if not self._set_listener_result(data["id"], err):
                     asyncio.ensure_future(self._on_error(err))
-        
+
         return await super()._on_message(data)
-    
+
     async def _subscribe(self, topic: str, **params: Any) -> None:
         await self.send_and_recv({
             "type": "subscribe",
@@ -164,7 +166,7 @@ class KuCoinStreamManager(BaseStreamManager):
             "response": True,
             "privateChannel": params.get("private", False)
         })
-    
+
     async def _unsubscribe(self, topic: str, **params: Any) -> None:
         await self.send_and_recv({
             "type": "unsubscribe",

@@ -78,7 +78,7 @@ class Bybit(BaseExchange):
         headers["X-BAPI-RECV-WINDOW"] = self.recv_window
 
         return path, params, data, headers, method
-    
+
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         if isinstance(json_data, dict):
             code = json_data.get("retCode")
@@ -86,7 +86,7 @@ class Bybit(BaseExchange):
                 msg = json_data.get("retMsg")
                 if msg is not None:
                     raise ExchangeApiError(code, msg)
-    
+
     async def __aenter__(self) -> Self:
         if self.timestamp_offset is None:
             server_time: int = (await self.request("/v5/market/time"))["time"]

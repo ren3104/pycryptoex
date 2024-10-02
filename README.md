@@ -50,7 +50,7 @@ async def main():
     kucoin = KuCoin()
     async with kucoin:
         await kucoin.request(...)
-    
+
     # Request to private endpoints
     bybit = Bybit(
         api_key="YOUR_API_KEY",

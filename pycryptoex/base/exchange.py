@@ -17,7 +17,7 @@ else:
 
 if TYPE_CHECKING:
     from aiohttp import ClientResponse
-    
+
     from typing import Any, Optional, Union
 
     from .websocket import BaseStreamManager
@@ -57,10 +57,10 @@ class BaseExchange(metaclass=abc.ABCMeta):
         method: str = "GET"
     ) -> tuple[Any, ...]:
         ...
-    
+
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         pass
-    
+
     async def request(
         self,
         path: str,
@@ -100,13 +100,13 @@ class BaseExchange(metaclass=abc.ABCMeta):
             response.raise_for_status()
 
             return json_data
-    
+
     async def create_websocket_stream(self, private: bool = False) -> BaseStreamManager:
         raise NotImplementedError
-    
+
     async def __aenter__(self) -> Self:
         return self
-    
+
     async def __aexit__(self, *args: Any) -> None:
         await self._session.close()
 
