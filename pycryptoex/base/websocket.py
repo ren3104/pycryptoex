@@ -6,7 +6,7 @@ import abc
 import asyncio
 from typing import TYPE_CHECKING, cast
 
-from .exceptions import WebsocketClosedError
+from .exceptions import WebsocketClosedError, ReconnectWebsocketError
 from .utils import current_timestamp, to_json, from_json
 
 if TYPE_CHECKING:
@@ -207,6 +207,11 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
         return False
 
     async def send_and_recv(self, data: Any) -> Any:
+        try:
+            await self._listeners["__restart__"]
+        except (KeyError, asyncio.CancelledError):
+            pass
+
         if self.closed:
             raise WebsocketClosedError()
 
@@ -220,7 +225,27 @@ class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
 
         await self._connection.send_json(data, dumps=to_json) # type: ignore
 
-        return await asyncio.wait_for(future, 10)
+        try:
+            return await asyncio.wait_for(future, 10)
+        except ReconnectWebsocketError:
+            try:
+                await self._listeners["__restart__"]
+            except asyncio.CancelledError:
+                del data[self.DEFAULT_ID_KEY]
+                return await self.send_and_recv(data)
+
+    async def restart(self) -> None:
+        self._listeners["__restart__"] = asyncio.get_running_loop().create_future()
+
+        for id_ in self._listeners:
+            if id_ == "__restart__":
+                continue
+            self._set_listener_result(id_, ReconnectWebsocketError())
+            del self._listeners[id_]
+
+        await super().restart()
+
+        self._listeners.pop("__restart__").cancel()
 
 
 class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):

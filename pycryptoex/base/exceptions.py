@@ -12,5 +12,9 @@ class WebsocketClosedError(Exception):
         super().__init__("Websocket connection is closed")
 
 
+class ReconnectWebsocketError(Exception):
+    ...
+
+
 class ExchangeWebsocketError(Exception):
     ...
