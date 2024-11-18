@@ -131,10 +131,10 @@ class KuCoin(BaseExchange):
 
 class KuCoinStreamManager(BaseStreamManager):
     async def ping(self) -> None:
-        await self._connection.send_json({ # type: ignore
+        await self.send_json({
             self.DEFAULT_ID_KEY: self.get_new_id(),
             "type": "ping"
-        }, dumps=to_json)
+        })
 
     async def _on_message(self, data: Any) -> None:
         try:
