@@ -109,7 +109,7 @@ class ReconnectingWebsocket:
         except Exception as e:
             await self._on_error(e)
 
-    async def stop(self, code: int = 1000) -> None:
+    async def stop(self, code: int = 1000, close_session: bool = True) -> None:
         if not self.closed:
             await self._connection.close(code=code) # type: ignore
 
@@ -119,7 +119,7 @@ class ReconnectingWebsocket:
         if self._receive_loop_task is not None:
             self._receive_loop_task.cancel()
 
-        if self._session is not None and not self._session.closed:
+        if close_session and self._session is not None and not self._session.closed:
             await self._session.close()
 
             # Wait 250 ms for the underlying SSL connections to close
@@ -131,7 +131,7 @@ class ReconnectingWebsocket:
         try:
             await self._callback(self._on_reconnect_callback, self)
 
-            await self.stop()
+            await self.stop(close_session=False)
             await self.start()
         finally:
             self._reconnect_event.set()
