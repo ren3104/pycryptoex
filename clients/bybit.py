@@ -14,9 +14,9 @@ else:
     from typing_extensions import Self
 
 if TYPE_CHECKING:
-    from aiohttp import ClientSession, ClientResponse
+    from aiohttp import ClientResponse
 
-    from typing import Any, Optional, Union
+    from typing import Any, Optional
 
 
 class Bybit(BaseExchange):
@@ -33,18 +33,14 @@ class Bybit(BaseExchange):
         secret: Optional[str] = None,
         recv_window: str = "5000",
         timestamp_offset: Optional[int] = None,
-        url: str = "https://api.bytick.com",
-        session: Optional[ClientSession] = None,
+        base_url: str = "https://api.bybit.com"
     ) -> None:
         self.api_key = api_key
         self.secret = secret
         self.recv_window = recv_window
         self.timestamp_offset = timestamp_offset
 
-        super().__init__(
-            url=url,
-            session=session
-        )
+        super().__init__(base_url)
 
     @property
     def authorized(self) -> bool:
@@ -56,28 +52,25 @@ class Bybit(BaseExchange):
     def _sign(
         self,
         path: str,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[Union[dict[str, Any], str]] = None,
-        headers: dict[str, Any] = {},
-        method: str = "GET"
+        params: Optional[dict[str, Any]],
+        data: Optional[dict[str, Any]],
+        headers: dict[str, Any],
+        method: str
     ) -> tuple[Any, ...]:
         if self.api_key is None:
             raise AuthenticationError("api_key")
         elif self.secret is None:
             raise AuthenticationError("secret")
 
-        if params is None:
-            params = {}
-
         headers["X-BAPI-API-KEY"] = self.api_key
         headers["X-BAPI-SIGN"] = hmac_signature(
             key=self.secret,
-            msg=urlencode(params)
+            msg="" if params is None else urlencode(params)
         )
         headers["X-BAPI-TIMESTAMP"] = str(current_timestamp() + (self.timestamp_offset or 0))
         headers["X-BAPI-RECV-WINDOW"] = self.recv_window
 
-        return path, params, data, headers, method
+        return path, params, None, headers, method
 
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         if isinstance(json_data, dict):
@@ -88,6 +81,8 @@ class Bybit(BaseExchange):
                     raise ExchangeApiError(code, msg)
 
     async def __aenter__(self) -> Self:
+        await super().__aenter__()
+
         if self.timestamp_offset is None:
             server_time: int = (await self.request("/v5/market/time"))["time"]
             self.timestamp_offset = server_time - current_timestamp()

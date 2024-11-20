@@ -18,29 +18,30 @@ else:
 if TYPE_CHECKING:
     from aiohttp import ClientResponse
 
-    from typing import Any, Optional, Union
+    from typing import Any, Optional
 
     from .websocket import BaseStreamManager
 
 
+DEFAULT_HEADERS = {
+    "Content-Type": "application/json;charset=utf-8",
+    "User-Agent": "pycryptoex-" + __version__
+}
+
+
 class BaseExchange(metaclass=abc.ABCMeta):
     __slots__ = (
-        "url",
+        "base_url",
         "_session"
     )
 
-    def __init__(
-        self,
-        url: str,
-        session: Optional[ClientSession] = None
-    ) -> None:
-        self.url = url
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url
+        self._session: Optional[ClientSession] = None
 
-        if session is None:
-            session = ClientSession(
-                json_serialize=to_json
-            )
-        self._session = session
+    @property
+    def closed(self) -> bool:
+        return self._session is None or self._session.closed
 
     @property
     @abc.abstractmethod
@@ -51,10 +52,10 @@ class BaseExchange(metaclass=abc.ABCMeta):
     def _sign(
         self,
         path: str,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[Union[dict[str, Any], str]] = None,
-        headers: dict[str, Any] = {},
-        method: str = "GET"
+        params: Optional[dict[str, Any]],
+        data: Optional[dict[str, Any]],
+        headers: dict[str, Any],
+        method: str
     ) -> tuple[Any, ...]:
         ...
 
@@ -66,27 +67,32 @@ class BaseExchange(metaclass=abc.ABCMeta):
         path: str,
         signed: bool = False,
         params: Optional[dict[str, Any]] = None,
-        data: Optional[Union[dict[str, Any], str]] = None,
-        headers: dict[str, Any] = {},
+        data: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, Any]] = None,
         method: str = "GET",
         **request_kwargs: Any
     ) -> Any:
-        headers.update({
-            "Content-Type": "application/json;charset=utf-8",
-            "User-Agent": "pycryptoex-" + __version__
-        })
+        if self._session is None or self._session.closed:
+            raise RuntimeError("HTTP session is closed")
+
+        if headers is None:
+            headers = DEFAULT_HEADERS.copy()
+        else:
+            headers.update(DEFAULT_HEADERS)
+
+        data_string: Optional[str] = None
 
         if signed:
-            path, params, data, headers, method = self._sign(path, params, data, headers, method)
+            path, params, data_string, headers, method = self._sign(path, params, data, headers, method)
 
-        if data is not None and not isinstance(data, str):
-            data = to_json(data)
+        if data_string is None and data:
+            data_string = to_json(data)
 
         async with self._session.request(
             method=method,
-            url=self.url + path,
+            url=self.base_url + path,
             params=params,
-            data=data,
+            data=data_string,
             headers=headers,
             **request_kwargs
         ) as response:
@@ -105,11 +111,15 @@ class BaseExchange(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     async def __aenter__(self) -> Self:
+        if self.closed:
+            self._session = ClientSession(json_serialize=to_json)
+
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        await self._session.close()
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
 
-        # Wait 250 ms for the underlying SSL connections to close
-        # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
-        await asyncio.sleep(0.25)
+            # Wait 250 ms for the underlying SSL connections to close
+            # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
+            await asyncio.sleep(0.25)

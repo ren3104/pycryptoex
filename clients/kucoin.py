@@ -14,9 +14,9 @@ from pycryptoex.base.exceptions import (
 from pycryptoex.base.utils import to_json, current_timestamp, hmac_signature
 
 if TYPE_CHECKING:
-    from aiohttp import ClientSession, ClientResponse
+    from aiohttp import ClientResponse
 
-    from typing import Any, Optional, Union
+    from typing import Any, Optional
 
     from pycryptoex.base.websocket import ReconnectingWebsocket
 
@@ -33,17 +33,13 @@ class KuCoin(BaseExchange):
         api_key: Optional[str] = None,
         secret: Optional[str] = None,
         passphrase: Optional[str] = None,
-        url: str = "https://api.kucoin.com",
-        session: Optional[ClientSession] = None
+        base_url: str = "https://api.kucoin.com"
     ) -> None:
         self.api_key = api_key
         self.secret = secret
         self.passphrase = passphrase
 
-        super().__init__(
-            url=url,
-            session=session
-        )
+        super().__init__(base_url)
 
     @property
     def authorized(self) -> bool:
@@ -56,10 +52,10 @@ class KuCoin(BaseExchange):
     def _sign(
         self,
         path: str,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[Union[dict[str, Any], str]] = None,
-        headers: dict[str, Any] = {},
-        method: str = "GET"
+        params: Optional[dict[str, Any]],
+        data: Optional[dict[str, Any]],
+        headers: dict[str, Any],
+        method: str
     ) -> tuple[Any, ...]:
         if self.api_key is None:
             raise AuthenticationError("api_key")
@@ -68,21 +64,21 @@ class KuCoin(BaseExchange):
         elif self.passphrase is None:
             raise AuthenticationError("passphrase")
 
-        body = ""
+        data_string: Optional[str] = None
+        if data:
+            data_string = to_json(data)
+
         if method in ("GET", "DELETE"):
             if params is not None and len(params) != 0:
                 path += "?" + urlencode(params)
                 params.clear()
-        else:
-            if data is not None and len(data) != 0:
-                body = data = to_json(data)
 
         timestamp = str(current_timestamp())
 
         headers["KC-API-KEY"] = self.api_key
         headers["KC-API-SIGN"] = hmac_signature(
             key=self.secret,
-            msg=timestamp + method + path + body,
+            msg=timestamp + method + path + (data_string or ""),
             digest="base64"
         )
         headers["KC-API-PASSPHRASE"] = hmac_signature(
@@ -93,7 +89,7 @@ class KuCoin(BaseExchange):
         headers["KC-API-TIMESTAMP"] = timestamp
         headers["KC-API-KEY-VERSION"] = "2"
 
-        return path, params, data, headers, method
+        return path, params, data_string, headers, method
 
     def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
         if isinstance(json_data, dict):
