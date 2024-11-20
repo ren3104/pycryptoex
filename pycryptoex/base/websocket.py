@@ -7,7 +7,7 @@ import asyncio
 from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, cast
 
-from .exceptions import WebsocketClosedError, ReconnectWebsocketError
+from .exceptions import ReconnectWebsocketError
 from .utils import current_timestamp, to_json, from_json
 
 if TYPE_CHECKING:
@@ -138,7 +138,7 @@ class ReconnectingWebsocket:
 
     async def send_json(self, data: Any) -> None:
         if self.closed:
-            raise WebsocketClosedError()
+            raise RuntimeError("Websocket connection is closed")
 
         await self._reconnect_event.wait()
 

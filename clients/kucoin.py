@@ -57,12 +57,12 @@ class KuCoin(BaseExchange):
         headers: dict[str, Any],
         method: str
     ) -> tuple[Any, ...]:
-        if self.api_key is None:
-            raise AuthenticationError("api_key")
-        elif self.secret is None:
-            raise AuthenticationError("secret")
-        elif self.passphrase is None:
-            raise AuthenticationError("passphrase")
+        if (
+            self.api_key is None
+            or self.secret is None
+            or self.passphrase is None
+        ):
+            raise AuthenticationError
 
         data_string: Optional[str] = None
         if data:

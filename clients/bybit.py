@@ -57,10 +57,8 @@ class Bybit(BaseExchange):
         headers: dict[str, Any],
         method: str
     ) -> tuple[Any, ...]:
-        if self.api_key is None:
-            raise AuthenticationError("api_key")
-        elif self.secret is None:
-            raise AuthenticationError("secret")
+        if self.api_key is None or self.secret is None:
+            raise AuthenticationError
 
         headers["X-BAPI-API-KEY"] = self.api_key
         headers["X-BAPI-SIGN"] = hmac_signature(
