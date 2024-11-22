@@ -22,32 +22,7 @@ if TYPE_CHECKING:
 
 
 class KuCoin(BaseExchange):
-    __slots__ = (
-        "api_key",
-        "secret",
-        "passphrase"
-    )
-
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        secret: Optional[str] = None,
-        passphrase: Optional[str] = None,
-        base_url: str = "https://api.kucoin.com"
-    ) -> None:
-        self.api_key = api_key
-        self.secret = secret
-        self.passphrase = passphrase
-
-        super().__init__(base_url)
-
-    @property
-    def authorized(self) -> bool:
-        return not (
-            self.api_key is None
-            or self.secret is None
-            or self.passphrase is None
-        )
+    DEFAULT_URL = "https://api.kucoin.com"
 
     def _sign(
         self,
@@ -65,13 +40,11 @@ class KuCoin(BaseExchange):
             raise AuthenticationError
 
         data_string: Optional[str] = None
-        if data:
+        if params:
+            path += "?" + urlencode(params)
+            params.clear()
+        elif data:
             data_string = to_json(data)
-
-        if method in ("GET", "DELETE"):
-            if params is not None and len(params) != 0:
-                path += "?" + urlencode(params)
-                params.clear()
 
         timestamp = str(current_timestamp())
 

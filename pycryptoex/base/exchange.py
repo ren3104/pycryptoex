@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from aiohttp import ClientSession
+try:
+    from Crypto.PublicKey import RSA, ECC # type: ignore
+except ModuleNotFoundError:
+    HAS_CRYPTO = False
+else:
+    HAS_CRYPTO = True
 
 import abc
 import asyncio
 import sys
+from os import path
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..__version__ import __version__
@@ -18,7 +26,7 @@ else:
 if TYPE_CHECKING:
     from aiohttp import ClientResponse
 
-    from typing import Any, Optional
+    from typing import Any, Optional, Union
 
     from .websocket import BaseStreamManager
 
@@ -31,22 +39,54 @@ DEFAULT_HEADERS = {
 
 class BaseExchange(metaclass=abc.ABCMeta):
     __slots__ = (
+        "api_key",
+        "secret",
+        "passphrase",
+        "private_key",
         "base_url",
         "_session"
     )
 
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url
+    DEFAULT_URL = ""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        secret: Optional[str] = None,
+        passphrase: Optional[str] = None,
+        private_key: Optional[Union[str, Path]] = None,
+        private_key_pass: Optional[str] = None,
+        base_url: Optional[str] = None
+    ) -> None:
+        self.api_key = api_key
+        self.secret = secret
+        self.passphrase = passphrase
+
+        self.private_key: Optional[Any] = None
+        if private_key is not None:
+            if not HAS_CRYPTO:
+                raise RuntimeError("Module named 'pycryptodome' not found")
+
+            if isinstance(private_key, Path) or path.isfile(private_key):
+                with open(private_key, "r") as f:
+                    private_key = f.read()
+
+            for key_importer in (RSA, ECC):
+                try:
+                    self.private_key = key_importer.import_key(private_key, private_key_pass)
+                except ValueError:
+                    pass
+                else:
+                    break
+            else:
+                raise ValueError("Private key format is not supported")
+
+        self.base_url = self.DEFAULT_URL if base_url is None else base_url
         self._session: Optional[ClientSession] = None
 
     @property
     def closed(self) -> bool:
         return self._session is None or self._session.closed
-
-    @property
-    @abc.abstractmethod
-    def authorized(self) -> bool:
-        ...
 
     @abc.abstractmethod
     def _sign(

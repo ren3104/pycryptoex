@@ -49,6 +49,7 @@ dependencies = [
 
 [project.optional-dependencies]
 speedup = ["orjson"]
+crypto = ["pycryptodome"]
 fmt = ["mypy"]
 dev = ["pre-commit", "ruff"]
 
