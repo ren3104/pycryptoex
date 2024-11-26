@@ -88,6 +88,9 @@ class BaseExchange(metaclass=abc.ABCMeta):
     def closed(self) -> bool:
         return self._session is None or self._session.closed
 
+    def _create_session(self) -> None:
+        self._session = ClientSession(json_serialize=to_json)
+
     @abc.abstractmethod
     def _sign(
         self,
@@ -112,8 +115,8 @@ class BaseExchange(metaclass=abc.ABCMeta):
         method: str = "GET",
         **request_kwargs: Any
     ) -> Any:
-        if self._session is None or self._session.closed:
-            raise RuntimeError("HTTP session is closed")
+        if self.closed:
+            self._create_session()
 
         if headers is None:
             headers = DEFAULT_HEADERS.copy()
@@ -128,7 +131,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
         if data_string is None and data:
             data_string = to_json(data)
 
-        async with self._session.request(
+        async with self._session.request( # type: ignore [union-attr]
             method=method,
             url=self.base_url + path,
             params=params,
@@ -152,13 +155,13 @@ class BaseExchange(metaclass=abc.ABCMeta):
 
     async def __aenter__(self) -> Self:
         if self.closed:
-            self._session = ClientSession(json_serialize=to_json)
+            self._create_session()
 
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
+        if not self.closed:
+            await self._session.close() # type: ignore [union-attr]
 
             # Wait 250 ms for the underlying SSL connections to close
             # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
