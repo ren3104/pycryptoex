@@ -83,17 +83,17 @@ class KuCoin(BaseExchange):
 
             return (
                 f"{ws_server_info['endpoint']}?token={token_data['data']['token']}",
-                ws_server_info["pingInterval"]
+                ws_server_info["pingInterval"] // 1000
             )
 
         async def _on_reconnect(ws: ReconnectingWebsocket) -> None:
             ws._url, ws._keepalive = await _get_conn_info()
 
-        url, keepalive_ms = await _get_conn_info()
+        url, keepalive = await _get_conn_info()
 
         return KuCoinStreamManager(
             url=url,
-            keepalive=keepalive_ms // 1000,
+            keepalive=keepalive,
             on_reconnect_callback=_on_reconnect
         )
 

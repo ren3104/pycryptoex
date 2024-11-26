@@ -65,7 +65,7 @@ class ReconnectingWebsocket:
         self._on_close_callback = on_close_callback
         self._on_error_callback = on_error_callback
 
-        self._keepalive = keepalive * 1000
+        self._keepalive = keepalive
         self._ping_loop_task: Optional[asyncio.Task] = None
         self._last_pong: Optional[int] = None
 
@@ -188,7 +188,7 @@ class ReconnectingWebsocket:
         while not self.closed:
             if (
                 self._last_pong is not None and
-                self._last_pong + self._keepalive < current_timestamp()
+                self._last_pong + self._keepalive * 1000 < current_timestamp()
             ):
                 asyncio.ensure_future(self.restart())
                 break
@@ -198,7 +198,7 @@ class ReconnectingWebsocket:
                 except Exception as e:
                     asyncio.ensure_future(self._on_error(e))
                     break
-            await asyncio.sleep(self._keepalive / 1000)
+            await asyncio.sleep(self._keepalive)
 
     async def _callback(self, callback: Optional[Callable[..., Any]], *args: Any) -> None:
         if callback is not None:
