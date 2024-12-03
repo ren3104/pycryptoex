@@ -85,11 +85,15 @@ class ReconnectingWebsocket:
         pass
 
     @property
-    def closed(self) -> bool:
+    def connection_closed(self) -> bool:
         return self._connection is None or self._connection.closed
 
+    @property
+    def closed(self) -> bool:
+        return self.connection_closed and self._reconnect_event.is_set()
+
     async def start(self) -> None:
-        if not self.closed:
+        if not self.connection_closed:
             return
 
         try:
@@ -102,15 +106,15 @@ class ReconnectingWebsocket:
                 autoping=False
             )
 
-            await self._callback(self._on_connected_callback, self)
-
             self._ping_loop_task = asyncio.ensure_future(self._ping_loop())
             self._receive_loop_task = asyncio.ensure_future(self._receive_loop())
+
+            await self._callback(self._on_connected_callback, self)
         except Exception as e:
             await self._on_error(e)
 
     async def stop(self, code: int = 1000, close_session: bool = True) -> None:
-        if not self.closed:
+        if not self.connection_closed:
             await self._connection.close(code=code) # type: ignore
 
         if self._ping_loop_task is not None:
@@ -129,16 +133,17 @@ class ReconnectingWebsocket:
     async def restart(self) -> None:
         self._reconnect_event.clear()
         try:
+            await self.stop(close_session=False)
+
             await self._callback(self._on_reconnect_callback, self)
 
-            await self.stop(close_session=False)
             await self.start()
         finally:
             self._reconnect_event.set()
 
     async def send_json(self, data: Any) -> None:
         if self.closed:
-            raise RuntimeError("Websocket connection is closed")
+            raise RuntimeError("Websocket client is closed")
 
         await self._reconnect_event.wait()
 
@@ -152,20 +157,22 @@ class ReconnectingWebsocket:
             await self.restart()
             return
 
-        try:
-            await self._callback(self._on_close_callback, self, code)
-        finally:
-            await self.stop(code)
+        await self.stop(code)
+
+        await self._callback(self._on_close_callback, self, code)
 
     async def _on_error(self, error: BaseException) -> None:
-        try:
-            await self._callback(self._on_error_callback, self, error)
-        finally:
-            await self.stop(1006)
+        await self.stop(1006)
+
+        await self._callback(self._on_error_callback, self, error)
 
     async def _receive_loop(self) -> None:
-        while not self.closed:
-            message = await self._connection.receive() # type: ignore
+        while not self.connection_closed:
+            try:
+                message = await self._connection.receive() # type: ignore [union-attr]
+            except Exception as e:
+                asyncio.ensure_future(self._on_error(e))
+                break
             if message.type == WSMsgType.TEXT:
                 await self._on_message(from_json(message.data))
             elif message.type == WSMsgType.PONG:
@@ -185,7 +192,7 @@ class ReconnectingWebsocket:
         await self._connection.ping() # type: ignore
 
     async def _ping_loop(self) -> None:
-        while not self.closed:
+        while not self.connection_closed:
             if (
                 self._last_pong is not None and
                 self._last_pong + self._keepalive * 1000 < current_timestamp()
