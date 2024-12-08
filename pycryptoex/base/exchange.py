@@ -31,12 +31,6 @@ if TYPE_CHECKING:
     from .websocket import BaseStreamManager
 
 
-DEFAULT_HEADERS = {
-    "Content-Type": "application/json;charset=utf-8",
-    "User-Agent": "pycryptoex-" + __version__
-}
-
-
 class BaseExchange(metaclass=abc.ABCMeta):
     __slots__ = (
         "api_key",
@@ -89,7 +83,13 @@ class BaseExchange(metaclass=abc.ABCMeta):
         return self._session is None or self._session.closed
 
     def _create_session(self) -> None:
-        self._session = ClientSession(json_serialize=to_json)
+        self._session = ClientSession(
+            headers={
+                "Content-Type": "application/json;charset=utf-8",
+                "User-Agent": "pycryptoex-" + __version__
+            },
+            json_serialize=to_json
+        )
 
     @abc.abstractmethod
     def _sign(
@@ -118,14 +118,12 @@ class BaseExchange(metaclass=abc.ABCMeta):
         if self.closed:
             self._create_session()
 
-        if headers is None:
-            headers = DEFAULT_HEADERS.copy()
-        else:
-            headers.update(DEFAULT_HEADERS)
-
         data_string: Optional[str] = None
 
         if signed:
+            if headers is None:
+                headers = {}
+
             path, params, data_string, headers, method = self._sign(path, params, data, headers, method)
 
         if data_string is None and data:
