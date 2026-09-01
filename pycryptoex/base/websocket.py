@@ -5,360 +5,242 @@ from aiohttp import ClientSession, WSMsgType
 import abc
 import asyncio
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from .exceptions import ReconnectWebsocketError
 from .utils import current_timestamp, to_json, from_json
+from .exceptions import ExchangeWebsocketError, ExchangeWebsocketClosed
 
 if TYPE_CHECKING:
     from aiohttp import ClientWebSocketResponse
 
-    from collections.abc import Callable, Iterable
-    from typing import Any, Optional, Union
+    import sys
+    from collections.abc import Callable
+    from typing import Any
 
-    Callback = Callable[[Any], Any]
-
-
-async def _call_func(func: Callable[..., Any], *args: Any) -> None:
-    if iscoroutinefunction(func):
-        await func(*args)
+    if sys.version_info >= (3, 11):
+        from typing import Self
     else:
-        func(*args)
+        from typing_extensions import Self
 
 
-class ReconnectingWebsocket:
+class BaseWebsocket(metaclass=abc.ABCMeta):
     __slots__ = (
-        "_url",
+        "_connection",
         "_on_message_callback",
-        "_on_connected_callback",
-        "_on_reconnect_callback",
+        "_on_open_callback",
         "_on_close_callback",
         "_on_error_callback",
-        "_keepalive",
-        "_ping_loop_task",
+        "private",
+        "ping_interval",
+        "pong_timeout",
         "_last_pong",
-        "_auto_reconnect",
-        "_reconnection_codes",
-        "_reconnect_event",
-        "_session",
-        "_connection",
-        "_receive_loop_task"
+        "_keepalive_loop_task",
+        "_receive_loop_task",
+        "_listeners",
+        "_error",
     )
 
     def __init__(
         self,
-        url: str,
-        on_message_callback: Optional[Callable[[ReconnectingWebsocket, Any], Any]] = None,
-        on_connected_callback: Optional[Callable[[ReconnectingWebsocket], Any]] = None,
-        on_reconnect_callback: Optional[Callable[[ReconnectingWebsocket], Any]] = None,
-        on_close_callback: Optional[Callable[[ReconnectingWebsocket, int], Any]] = None,
-        on_error_callback: Optional[Callable[[ReconnectingWebsocket, BaseException], Any]] = None,
-        keepalive: int = 10,
-        auto_reconnect: bool = True,
-        reconnection_codes: Iterable[int] = (1000, 1001, 1005)
+        connection: ClientWebSocketResponse,
+        on_message: Callable[[BaseWebsocket, Any], Any] | None = None,
+        on_open: Callable[[BaseWebsocket], Any] | None = None,
+        on_close: Callable[[BaseWebsocket, int], Any] | None = None,
+        on_error: Callable[[BaseWebsocket, BaseException], Any] | None = None,
+        private: bool = False,
+        ping_interval: float = 10.0,
+        pong_timeout: float | None = None,
     ) -> None:
-        self._url = url
+        self._connection = connection
+        self._on_message_callback = on_message
+        self._on_open_callback = on_open
+        self._on_close_callback = on_close
+        self._on_error_callback = on_error
+        self.private = private
 
-        self._on_message_callback = on_message_callback
-        self._on_connected_callback = on_connected_callback
-        self._on_reconnect_callback = on_reconnect_callback
-        self._on_close_callback = on_close_callback
-        self._on_error_callback = on_error_callback
+        self.ping_interval = ping_interval
+        if pong_timeout is None:
+            self.pong_timeout = ping_interval * 2
+        else:
+            self.pong_timeout = pong_timeout
+        self._last_pong: int = current_timestamp()
+        self._keepalive_loop_task: asyncio.Task[None] | None = None
 
-        self._keepalive = keepalive
-        self._ping_loop_task: Optional[asyncio.Task] = None
-        self._last_pong: Optional[int] = None
+        self._receive_loop_task: asyncio.Task[None] | None = None
+        self._listeners: dict[str, asyncio.Future[Any]] = {}
 
-        self._auto_reconnect = auto_reconnect
-        self._reconnection_codes = reconnection_codes
-
-        self._reconnect_event = asyncio.Event()
-        self._reconnect_event.set()
-
-        self._session: Optional[ClientSession] = None
-        self._connection: Optional[ClientWebSocketResponse] = None
-        self._receive_loop_task: Optional[asyncio.Task] = None
-
-        self._post_init()
-
-    def _post_init(self) -> None:
-        pass
-
-    @property
-    def connection_closed(self) -> bool:
-        return self._connection is None or self._connection.closed
+        self._error: BaseException | None = None
 
     @property
     def closed(self) -> bool:
-        return self.connection_closed and self._reconnect_event.is_set()
+        return self._connection.closed
 
-    async def start(self) -> None:
-        if not self.connection_closed:
-            return
+    @classmethod
+    async def connect(cls, session: ClientSession, url: str, **kwargs: Any) -> Self:
+        connection = await session.ws_connect(url, autoclose=False, autoping=False)
+        websocket = cls(connection, **kwargs)
 
-        try:
-            if self._session is None or self._session.closed:
-                self._session = ClientSession()
+        websocket._receive_loop_task = asyncio.create_task(websocket._receive_loop())
 
-            self._connection = await self._session._ws_connect(
-                url=self._url,
-                autoclose=False,
-                autoping=False
+        if websocket.ping_interval > 0:
+            websocket._keepalive_loop_task = asyncio.create_task(
+                websocket._keepalive_loop()
             )
 
-            self._ping_loop_task = asyncio.ensure_future(self._ping_loop())
-            self._receive_loop_task = asyncio.ensure_future(self._receive_loop())
+        await websocket._callback(websocket._on_open_callback, websocket)
 
-            await self._callback(self._on_connected_callback, self)
-        except Exception as e:
-            await self._on_error(e)
+        return websocket
 
-    async def stop(self, code: int = 1000, close_session: bool = True) -> None:
-        if not self.connection_closed:
-            await self._connection.close(code=code) # type: ignore
+    async def close(self, code: int = 1000) -> None:
+        if not self._connection.closed:
+            await self._connection.close(code=code)
 
-        if self._ping_loop_task is not None:
-            self._ping_loop_task.cancel()
-
-        if self._receive_loop_task is not None:
-            self._receive_loop_task.cancel()
-
-        if close_session and self._session is not None and not self._session.closed:
-            await self._session.close()
-
-            # Wait 250 ms for the underlying SSL connections to close
-            # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
-            await asyncio.sleep(0.25)
-
-    async def restart(self) -> None:
-        self._reconnect_event.clear()
-        try:
-            await self.stop(close_session=False)
-
-            await self._callback(self._on_reconnect_callback, self)
-
-            await self.start()
-        finally:
-            self._reconnect_event.set()
-
-    async def send_json(self, data: Any) -> None:
+    async def send(self, data: str | Any) -> None:
         if self.closed:
-            raise RuntimeError("Websocket client is closed")
+            raise ExchangeWebsocketClosed()
 
-        await self._reconnect_event.wait()
+        if not isinstance(data, str):
+            data = to_json(data)
 
-        await self._connection.send_json(data, dumps=to_json) # type: ignore
+        await self._connection.send_str(data)
 
-    async def _on_message(self, data: Any) -> None:
+    async def request(
+        self,
+        request_id: str,
+        data: Any,
+        timeout: float = 10,
+    ) -> Any:
+        if request_id in self._listeners:
+            raise ExchangeWebsocketError(
+                f"Request id is already in flight: {request_id!r}"
+            )
+
+        future = asyncio.get_running_loop().create_future()
+        self._listeners[request_id] = future
+
+        try:
+            await self.send(data)
+
+            return await asyncio.wait_for(future, timeout)
+        finally:
+            self._listeners.pop(request_id, None)
+
+    @abc.abstractmethod
+    async def subscribe(self, topic: str) -> Any: ...
+
+    @abc.abstractmethod
+    async def unsubscribe(self, topic: str) -> Any: ...
+
+    async def _emit_message(self, data: Any) -> None:
         await self._callback(self._on_message_callback, self, data)
 
-    async def _on_close(self, code: int) -> None:
-        if self._auto_reconnect and code in self._reconnection_codes:
-            await self.restart()
-            return
+    @abc.abstractmethod
+    async def _on_receive_data(self, data: Any) -> None: ...
 
-        await self.stop(code)
+    async def _receive_loop(self) -> None:
+        code = 1000
+        try:
+            while not self.closed:
+                message = await self._connection.receive()
+
+                if message.type == WSMsgType.TEXT:
+                    await self._on_receive_data(from_json(message.data))
+                elif message.type == WSMsgType.PONG:
+                    self._last_pong = current_timestamp()
+                elif message.type == WSMsgType.PING:
+                    await self._connection.pong(message.data)
+                elif message.type == WSMsgType.CLOSE:
+                    code = message.data if isinstance(message.data, int) else 1006
+                    break
+                elif message.type == WSMsgType.CLOSING:
+                    # close by client
+                    break
+                elif message.type == WSMsgType.CLOSED:
+                    # no close frame, the connection is simply gone
+                    code = 1006
+                    break
+                elif message.type == WSMsgType.ERROR:
+                    raise ExchangeWebsocketError(
+                        f"Websocket transport error: {self._connection.exception()!r}"
+                    )
+                else:
+                    raise ExchangeWebsocketError(
+                        f"Unexpected frame type: {message.type!r}"
+                    )
+        except Exception as e:
+            self._set_error(e)
+            code = 1006
+        finally:
+            await self._teardown(code)
+
+    async def _teardown(self, code: int) -> None:
+        if self._keepalive_loop_task is not None:
+            self._keepalive_loop_task.cancel()
+
+        for request_id in list(self._listeners):
+            self._set_listener_result(request_id, ExchangeWebsocketClosed())
+
+        if not self._connection.closed:
+            await self._connection.close()
+
+        if self._error is not None:
+            await self._callback(self._on_error_callback, self, self._error)
 
         await self._callback(self._on_close_callback, self, code)
 
-    async def _on_error(self, error: BaseException) -> None:
-        await self.stop(1006)
-
-        await self._callback(self._on_error_callback, self, error)
-
-    async def _receive_loop(self) -> None:
-        while not self.connection_closed:
-            try:
-                message = await self._connection.receive() # type: ignore [union-attr]
-            except Exception as e:
-                asyncio.ensure_future(self._on_error(e))
-                break
-            if message.type == WSMsgType.TEXT:
-                await self._on_message(from_json(message.data))
-            elif message.type == WSMsgType.PONG:
-                self._last_pong = current_timestamp()
-            else:
-                if message.type == WSMsgType.CLOSE:
-                    asyncio.ensure_future(self._on_close(cast(int, message.data)))
-                elif message.type == WSMsgType.CLOSED:
-                    asyncio.ensure_future(self._on_close(1000))
-                elif message.type == WSMsgType.ERROR:
-                    asyncio.ensure_future(self._on_error(Exception(message)))
-                break
-
-    async def ping(self) -> None:
+    async def _ping(self) -> None:
         # If you change this function, then don't forget
         # to change the handling of self._last_pong
-        await self._connection.ping() # type: ignore
+        await self._connection.ping()
 
-    async def _ping_loop(self) -> None:
-        while not self.connection_closed:
-            if (
-                self._last_pong is not None and
-                self._last_pong + self._keepalive * 1000 < current_timestamp()
-            ):
-                asyncio.ensure_future(self.restart())
-                break
-            else:
-                try:
-                    await self.ping()
-                except Exception as e:
-                    asyncio.ensure_future(self._on_error(e))
-                    break
-            await asyncio.sleep(self._keepalive)
+    async def _keepalive_loop(self) -> None:
+        try:
+            while not self.closed:
+                await asyncio.sleep(self.ping_interval)
 
-    async def _callback(self, callback: Optional[Callable[..., Any]], *args: Any) -> None:
-        if callback is not None:
-            try:
-                await _call_func(callback, *args)
-            except Exception as e:
-                if self._on_error_callback is not None and self._on_error_callback != callback:
-                    await _call_func(self._on_error_callback, self, e)
+                if self._last_pong + self.pong_timeout * 1000 < current_timestamp():
+                    raise ExchangeWebsocketError("Timeout for receive pong")
 
+                await self._ping()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._set_error(e)
 
-class CommunicatingWebsocket(ReconnectingWebsocket, metaclass=abc.ABCMeta):
-    __slots__ = (
-        "_last_id",
-        "_listeners"
-    )
+            if not self._connection.closed:
+                await self._connection.close(code=1006)
 
-    DEFAULT_ID_KEY = "id"
-
-    def _post_init(self) -> None:
-        super()._post_init()
-        self._last_id: int = 0
-        self._listeners: dict[str, asyncio.Future] = {}
-
-    def get_new_id(self) -> str:
-        id_ = self._last_id = self._last_id + 1
-        return str(id_)
-
-    def _set_listener_result(self, id_: str, result: Any) -> bool:
-        future = self._listeners.pop(id_, None)
-        if future is not None and not future.done():
+    def _set_listener_result(self, request_id: str, result: Any) -> bool:
+        try:
+            future = self._listeners.pop(request_id)
             if isinstance(result, BaseException):
                 future.set_exception(result)
             else:
                 future.set_result(result)
             return True
-        return False
+        except (KeyError, asyncio.InvalidStateError):
+            return False
 
-    async def send_and_recv(self, data: Any) -> Any:
-        try:
-            id_ = data[self.DEFAULT_ID_KEY]
-        except KeyError:
-            id_ = data[self.DEFAULT_ID_KEY] = self.get_new_id()
+    def _set_error(self, error: BaseException) -> None:
+        if self._error is None:
+            self._error = error
 
-        future = asyncio.get_running_loop().create_future()
-        self._listeners[id_] = future
-
-        await self.send_json(data)
-
-        try:
-            return await asyncio.wait_for(future, 10)
-        except ReconnectWebsocketError:
-            return await self.send_and_recv(data)
-
-    async def restart(self) -> None:
-        for id_ in self._listeners.copy():
-            self._set_listener_result(id_, ReconnectWebsocketError())
-
-        await super().restart()
-
-
-class BaseStreamManager(CommunicatingWebsocket, metaclass=abc.ABCMeta):
-    __slots__ = (
-        "_subscribed_topic_handlers",
-        "_subscribed_topic_params"
-    )
-
-    def _post_init(self) -> None:
-        super()._post_init()
-        self._subscribed_topic_handlers: dict[str, list[Callback]] = {}
-        self._subscribed_topic_params: dict[str, dict[str, Any]] = {}
-
-    @property
-    def subscriptions(self) -> list[str]:
-        return list(self._subscribed_topic_handlers.keys())
-
-    @abc.abstractmethod
-    async def _subscribe(self, topic: str, **params: Any) -> None:
-        ...
-
-    @abc.abstractmethod
-    async def _unsubscribe(self, topic: str, **params: Any) -> None:
-        ...
-
-    async def subscribe(self, topic: str, **params: Any) -> None:
-        if topic in self._subscribed_topic_handlers:
+    async def _callback(self, callback: Callable[..., Any] | None, *args: Any) -> None:
+        if callback is None:
             return
 
-        await self._subscribe(topic, **params)
-
-        if len(params) > 0:
-            self._subscribed_topic_params[topic] = params
-        self._subscribed_topic_handlers[topic] = []
-
-    async def subscribe_callback(
-        self,
-        topic: str,
-        callbacks: Union[Callback, Iterable[Callback]],
-        **params: Any
-    ) -> None:
-        await self.subscribe(topic, **params)
-
-        if callable(callbacks):
-            self._subscribed_topic_handlers[topic].append(callbacks)
-        else:
-            self._subscribed_topic_handlers[topic].extend(callbacks)
-
-    async def unsubscribe(self, topic: str, **params: Any) -> None:
-        if topic not in self._subscribed_topic_handlers:
-            return
-
-        await self._unsubscribe(topic, **params)
-
         try:
-            del self._subscribed_topic_handlers[topic]
-            del self._subscribed_topic_params[topic]
-        except KeyError:
-            pass
-
-    async def unsubscribe_callback(
-        self,
-        topic: str,
-        callbacks: Union[Callback, Iterable[Callback]],
-        **params: Any
-    ) -> None:
-        if topic not in self._subscribed_topic_handlers:
-            return
-
-        subscribed_topic = self._subscribed_topic_handlers[topic]
-
-        if callable(callbacks):
-            callbacks = [callbacks]
-
-        for callback in callbacks:
-            try:
-                subscribed_topic.remove(callback)
-            except ValueError:
-                pass
-
-        if len(subscribed_topic) == 0:
-            await self.unsubscribe(topic, **params)
-
-    async def restart(self) -> None:
-        await super().restart()
-
-        for topic in self.subscriptions:
-            params = self._subscribed_topic_params.get(topic)
-            if params is None:
-                await self._subscribe(topic)
+            if iscoroutinefunction(callback):
+                await callback(*args)
             else:
-                await self._subscribe(topic, **params)
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, callback, *args)
+        except Exception as e:
+            if (
+                callback is self._on_error_callback
+                or callback is self._on_close_callback
+            ):
+                return
 
-    def _handle_task_exception(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
-            exception = task.exception()
-            if exception is not None:
-                asyncio.ensure_future(self._on_error(exception))
+            self._set_error(e)
+            await self.close(1006)

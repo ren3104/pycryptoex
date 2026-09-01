@@ -17,76 +17,90 @@ A Python library providing a clients for interacting with various APIs of crypto
 pip install -U pycryptoex
 ```
 
-Choose and install one or more supported crypto exchanges:
-```shell
-pycryptoex [names ...]
-```
-
-For example:
-```shell
-pycryptoex bybit kucoin
-```
-
-### Install from Github main
-```shell
-pip install -U git+https://github.com/ren3104/pycryptoex@main
-```
-
-```shell
-pycryptoex [names ...] --update --version main
-```
-
 ## Quick Start
 ```python
 import asyncio
 
-from pycryptoex import KuCoin, Bybit
-
-
-async def handler(json_data):
-    print(json_data)
+from pycryptoex.kucoin import KuCoin
 
 
 async def main():
-    # Request to public endpoints
-    kucoin = KuCoin()
-    async with kucoin:
-        await kucoin.request(...)
+    async with KuCoin() as kucoin:
+        # Request to public endpoints
+        tickers = await kucoin.request("/api/v1/market/allTickers")
+        print(tickers)
 
-    # Request to private endpoints
-    bybit = Bybit(
-        api_key="YOUR_API_KEY",
-        secret="YOUR_API_SECRET"
-    )
-    async with bybit:
-        await bybit.request(..., signed=True)
 
-    # Start the public websocket
-    kucoin_public_ws = await kucoin.create_websocket_stream()
-    await kucoin_public_ws.start()
-    # Subscribe handler to a public channel
-    topic = "/market/candles:BTC-USDT_1min"
-    await kucoin_public_ws.subscribe_callback(topic, handler)
-    # Unsubscribe handler from a public channel
-    await kucoin_public_ws.unsubscribe_callback(topic, handler)
-    # Unsubscribe all handlers from a public channel
-    await kucoin_public_ws.unsubscribe(topic)
-    # Stop the public websocket
-    await kucoin_public_ws.close()
-
-    # Start the private websocket
-    kucoin_private_ws = await kucoin.create_websocket_stream(private=True)
-    await kucoin_private_ws.start()
-    # Subscribe to private channels
-    await kucoin_private_ws.subscribe_callback("/account/balance", handler)
-
-    # Block until websockets close
-    while not kucoin_public_ws.closed or not kucoin_private_ws.closed:
-        await asyncio.sleep(0.1)
+asyncio.run(main())
 ```
 
-## Supported Crypto Exchanges
-| Exchange | Api Client | Websocket Stream Manager
-| --- | --- | --- |
-| [Bybit](https://www.bybit.com/invite?ref=0WXGNA5) | + | - |
-| [KuCoin](https://www.kucoin.com/r/rf/QBAAD3Y5) | + | + |
+### Private endpoints
+```python
+from pycryptoex.kucoin import KuCoin
+
+
+async def main():
+    kucoin = KuCoin(
+        api_key="YOUR_API_KEY",
+        secret="YOUR_API_SECRET",
+        passphrase="YOUR_API_PASSPHRASE",
+    )
+    async with kucoin:
+        accounts = await kucoin.request("/api/v1/accounts", signed=True)
+        print(accounts)
+```
+
+### Websockets
+`websocket_connect` returns a connected websocket driven by four optional callbacks.
+Each callback may be either a regular function or a coroutine function. The websocket
+borrows the client's HTTP session, so it has to be used inside the `async with` block.
+
+```python
+import asyncio
+
+from pycryptoex import BaseWebsocket
+from pycryptoex.kucoin import KuCoin
+
+
+async def on_open(ws: BaseWebsocket) -> None:
+    print("connected")
+
+
+async def on_message(ws: BaseWebsocket, message) -> None:
+    print(message)
+
+
+async def on_error(ws: BaseWebsocket, error: BaseException) -> None:
+    print("error:", error)
+
+
+async def on_close(ws: BaseWebsocket, code: int) -> None:
+    print("closed with code", code)
+
+
+async def main():
+    async with KuCoin() as kucoin:
+        ws = await kucoin.websocket_connect(
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+
+        topic = "/market/candles:BTC-USDT_1min"
+        await ws.subscribe(topic)
+        await asyncio.sleep(60)
+        await ws.unsubscribe(topic)
+
+        await ws.close()
+
+
+asyncio.run(main())
+```
+
+## Development
+```shell
+hatch run types:check # mypy --strict
+hatch fmt --check # ruff format + ruff check
+hatch fmt # autofix
+```

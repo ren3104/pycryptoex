@@ -1,34 +1,34 @@
 from __future__ import annotations
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
+from aiohttp.client_exceptions import ClientConnectionError
+
 try:
-    from Crypto.PublicKey import RSA, ECC # type: ignore
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    HAS_CRYPTO = True
 except ModuleNotFoundError:
     HAS_CRYPTO = False
-else:
-    HAS_CRYPTO = True
 
 import abc
 import asyncio
-import sys
-from os import path
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..__version__ import __version__
-from .utils import to_json, from_json
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:
-    from typing_extensions import Self
+from .websocket import BaseWebsocket
+from .exceptions import PycryptoexError, InvalidNonce
+from .utils import to_json, from_json, current_timestamp
 
 if TYPE_CHECKING:
-    from aiohttp import ClientResponse
+    import sys
+    from types import TracebackType
+    from collections.abc import Callable
+    from typing import Any
 
-    from typing import Any, Optional, Union
-
-    from .websocket import BaseStreamManager
+    if sys.version_info >= (3, 11):
+        from typing import Self
+    else:
+        from typing_extensions import Self
 
 
 class BaseExchange(metaclass=abc.ABCMeta):
@@ -38,129 +38,165 @@ class BaseExchange(metaclass=abc.ABCMeta):
         "passphrase",
         "private_key",
         "base_url",
-        "_session"
+        "_session",
+        "timestamp_offset",
     )
 
     DEFAULT_URL = ""
+    DEFAULT_TIMEOUT = ClientTimeout(total=10)
+    MAX_RETRIES = 3
+    RETRY_WAIT = 3
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        secret: Optional[str] = None,
-        passphrase: Optional[str] = None,
-        private_key: Optional[Union[str, Path]] = None,
-        private_key_pass: Optional[str] = None,
-        base_url: Optional[str] = None
+        api_key: str | None = None,
+        secret: str | None = None,
+        passphrase: str | None = None,
+        private_key: str | Path | None = None,
+        private_key_pass: str | None = None,
+        base_url: str | None = None,
+        timestamp_offset: int | None = None,
     ) -> None:
         self.api_key = api_key
         self.secret = secret
         self.passphrase = passphrase
 
-        self.private_key: Optional[Any] = None
+        self.private_key: Any | None = None
         if private_key is not None:
             if not HAS_CRYPTO:
-                raise RuntimeError("Module named 'pycryptodome' not found")
+                raise RuntimeError("Module named 'cryptography' is not installed")
 
-            if isinstance(private_key, Path) or path.isfile(private_key):
-                with open(private_key, "r") as f:
-                    private_key = f.read()
+            if isinstance(private_key, Path) or Path(private_key).is_file():
+                private_key = Path(private_key).read_text(encoding="utf-8")
 
-            for key_importer in (RSA, ECC):
-                try:
-                    self.private_key = key_importer.import_key(private_key, private_key_pass)
-                except ValueError:
-                    pass
-                else:
-                    break
-            else:
-                raise ValueError("Private key format is not supported")
+            self.private_key = load_pem_private_key(
+                data=private_key.encode("utf-8"),
+                password=(
+                    private_key_pass.encode("utf-8")
+                    if private_key_pass is not None
+                    else None
+                ),
+            )
 
-        self.base_url = self.DEFAULT_URL if base_url is None else base_url
-        self._session: Optional[ClientSession] = None
+        if base_url is not None:
+            self.base_url = base_url
+        else:
+            self.base_url = self.DEFAULT_URL
+        self._session: ClientSession | None = None
+        self.timestamp_offset = timestamp_offset
 
     @property
     def closed(self) -> bool:
         return self._session is None or self._session.closed
 
-    def _create_session(self) -> None:
-        self._session = ClientSession(
+    def _create_session(self) -> ClientSession:
+        return ClientSession(
             headers={
                 "Content-Type": "application/json;charset=utf-8",
-                "User-Agent": "pycryptoex-" + __version__
+                "User-Agent": "pycryptoex",
             },
-            json_serialize=to_json
+            json_serialize=to_json,
         )
 
     @abc.abstractmethod
     def _sign(
         self,
         path: str,
-        params: Optional[dict[str, Any]],
-        data: Optional[dict[str, Any]],
+        params: dict[str, Any] | None,
+        data: dict[str, Any] | None,
         headers: dict[str, Any],
-        method: str
-    ) -> tuple[Any, ...]:
-        ...
+        method: str,
+    ) -> None: ...
 
-    def _handle_errors(self, response: ClientResponse, json_data: Any) -> None:
+    def _handle_errors(self, data: Any) -> None:
         pass
 
     async def request(
         self,
         path: str,
         signed: bool = False,
-        params: Optional[dict[str, Any]] = None,
-        data: Optional[dict[str, Any]] = None,
-        headers: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, Any] | None = None,
         method: str = "GET",
-        **request_kwargs: Any
+        max_retries: int | None = None,
+        **request_kwargs: Any,
     ) -> Any:
-        if self.closed:
-            self._create_session()
+        if max_retries is None:
+            max_retries = self.MAX_RETRIES
 
-        data_string: Optional[str] = None
+        if "timeout" not in request_kwargs:
+            request_kwargs["timeout"] = self.DEFAULT_TIMEOUT
 
-        if signed:
-            if headers is None:
-                headers = {}
+        for attempt in range(max_retries + 1):
+            if self._session is None:
+                raise PycryptoexError("Exchange client is not initialized")
+            elif self._session.closed:
+                self._session = self._create_session()
 
-            path, params, data_string, headers, method = self._sign(path, params, data, headers, method)
+            if signed:
+                if headers is None:
+                    headers = {}
 
-        if data_string is None and data:
-            data_string = to_json(data)
+                self._sign(path, params, data, headers, method)
 
-        async with self._session.request( # type: ignore [union-attr]
-            method=method,
-            url=self.base_url + path,
-            params=params,
-            data=data_string,
-            headers=headers,
-            **request_kwargs
-        ) as response:
-            json_data = await response.json(
-                encoding="utf-8",
-                loads=from_json
-            )
+            try:
+                async with self._session.request(
+                    method=method,
+                    url=self.base_url + path,
+                    params=params,
+                    json=data,
+                    headers=headers,
+                    **request_kwargs,
+                ) as response:
+                    json_data = await response.json(encoding="utf-8", loads=from_json)
 
-            self._handle_errors(response, json_data)
+                    self._handle_errors(json_data)
 
-            response.raise_for_status()
+                    response.raise_for_status()
 
-            return json_data
+                    return json_data
+            except (
+                ClientConnectionError,  # Connector is closed
+                asyncio.TimeoutError,  # Request timeout
+                InvalidNonce,
+            ):
+                if attempt == max_retries:
+                    raise
 
-    async def create_websocket_stream(self, private: bool = False) -> BaseStreamManager:
-        raise NotImplementedError
+            await asyncio.sleep(self.RETRY_WAIT)
+
+    @abc.abstractmethod
+    async def websocket_connect(
+        self,
+        on_message: Callable[[BaseWebsocket, Any], Any] | None = None,
+        on_open: Callable[[BaseWebsocket], Any] | None = None,
+        on_close: Callable[[BaseWebsocket, int], Any] | None = None,
+        on_error: Callable[[BaseWebsocket, BaseException], Any] | None = None,
+        private: bool = False,
+        url: str | None = None,
+    ) -> BaseWebsocket: ...
+
+    @abc.abstractmethod
+    async def get_server_time(self) -> int: ...
 
     async def __aenter__(self) -> Self:
         if self.closed:
-            self._create_session()
+            self._session = self._create_session()
+
+        if self.timestamp_offset is None:
+            self.timestamp_offset = await self.get_server_time() - current_timestamp()
 
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
-        if not self.closed:
-            await self._session.close() # type: ignore [union-attr]
-
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
             # Wait 250 ms for the underlying SSL connections to close
             # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
             await asyncio.sleep(0.25)
