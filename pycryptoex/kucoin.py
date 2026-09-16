@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+from decimal import ROUND_HALF_EVEN, ROUND_DOWN
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from .base.exchange import BaseExchange
 from .base.websocket import BaseWebsocket
-from .base.utils import to_json, current_timestamp, hmac_base64
+from .base.utils import to_json, current_timestamp, hmac_base64, number_to_precision
 from .base.exceptions import (
     PycryptoexError,
     AuthenticationError,
@@ -16,6 +18,7 @@ from .base.exceptions import (
 )
 
 if TYPE_CHECKING:
+    from numbers import Number
     from collections.abc import Callable
     from typing import Any
 
@@ -50,9 +53,11 @@ class KuCoin(BaseExchange):
         headers["KC-API-TIMESTAMP"] = timestamp
         if "KC-API-KEY" not in headers:
             headers["KC-API-KEY"] = self.api_key
+        if "KC-API-PASSPHRASE" not in headers:
             headers["KC-API-PASSPHRASE"] = hmac_base64(
                 key=self.secret, msg=self.passphrase
             )
+        if "KC-API-KEY-VERSION" not in headers:
             headers["KC-API-KEY-VERSION"] = "2"
 
     def _handle_errors(self, data: Any) -> None:
@@ -71,10 +76,6 @@ class KuCoin(BaseExchange):
             raise InvalidNonce(code, msg)
 
         raise ExchangeApiError(code, msg)
-
-    async def get_server_time(self) -> int:
-        data: int = (await self.request("/api/v1/timestamp"))["data"]
-        return data
 
     async def websocket_connect(
         self,
@@ -103,15 +104,82 @@ class KuCoin(BaseExchange):
         )
         ping_interval = ws_info["pingInterval"] / 1000
 
-        return await KuCoinWebsocket.connect(
-            self._session,
-            url,
+        ws = KuCoinWebsocket(
             private=private,
             on_message=on_message,
             on_open=on_open,
             on_close=on_close,
             on_error=on_error,
             ping_interval=ping_interval,
+        )
+
+        future = asyncio.get_running_loop().create_future()
+        ws._listeners["welcome"] = future
+
+        await ws.connect(self._session, url)
+
+        try:
+            await asyncio.wait_for(future, 10)
+        finally:
+            ws._listeners.pop("welcome", None)
+
+        return ws
+
+    async def get_server_time(self) -> int:
+        data: int = (await self.request("/api/v1/timestamp"))["data"]
+        return data
+
+    async def create_order(
+        self,
+        symbol: str,
+        type: str,
+        side: str,
+        size: Number,
+        price: Number | None = None,
+        time_in_force: str = "GTC",
+        custom_id: str | None = None,
+    ) -> Any:
+        size_str = number_to_precision(size, "0.00000001", ROUND_DOWN)
+
+        data = {
+            "symbol": symbol,
+            "type": type,
+            "side": side,
+            "size": size_str,
+            "timeInForce": time_in_force,
+        }
+
+        if price is not None:
+            data["price"] = number_to_precision(price, "0.00000001", ROUND_HALF_EVEN)
+
+        if custom_id:
+            data["clientOid"] = custom_id
+
+        return await self.request(
+            path="/api/v1/hf/orders",
+            signed=True,
+            data=data,
+            method="POST"
+        )
+
+    async def cancel_order(
+        self,
+        symbol: str,
+        id: str | None = None,
+        custom_id: str | None = None,
+    ) -> Any:
+        if id:
+            path = "/api/v1/hf/orders/" + id
+        elif custom_id:
+            path = "/api/v1/hf/orders/client-order/" + custom_id
+        else:
+            raise ValueError("Either id or custom_id must be provided")
+
+        return await self.request(
+            path=path,
+            signed=True,
+            params={"symbol": symbol},
+            method="DELETE"
         )
 
 
@@ -128,11 +196,13 @@ class KuCoinWebsocket(BaseWebsocket):
             return
 
         if data_type == "message":
-            await self._emit_message(data)
+            await self._emit_message(data["data"])
         elif data_type == "pong":
             self._last_pong = current_timestamp()
         elif data_type == "ack":
             self._set_listener_result(data["id"], data)
+        elif data_type == "welcome":
+            self._set_listener_result("welcome", True)
         elif data_type == "error":
             err = ExchangeWebsocketError(data["code"], data["data"])
             if not self._set_listener_result(data["id"], err):
@@ -140,9 +210,11 @@ class KuCoinWebsocket(BaseWebsocket):
                 await self.close(1006)
 
     async def subscribe(self, topic: str) -> Any:
+        unique_id = str(uuid.uuid4())
         return await self.request(
-            request_id=str(uuid.uuid4()),
+            request_id=unique_id,
             data={
+                "id": unique_id,
                 "type": "subscribe",
                 "topic": topic,
                 "privateChannel": self.private,
@@ -151,12 +223,63 @@ class KuCoinWebsocket(BaseWebsocket):
         )
 
     async def unsubscribe(self, topic: str) -> Any:
+        unique_id = str(uuid.uuid4())
         return await self.request(
-            request_id=str(uuid.uuid4()),
+            request_id=unique_id,
             data={
+                "id": unique_id,
                 "type": "unsubscribe",
                 "topic": topic,
                 "privateChannel": self.private,
                 "response": True,
             },
         )
+
+    def parse_order_update(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Parse a KuCoin spot order/trade event from `/spotMarket/tradeOrders`
+        into a unified order-update dict.
+
+        KuCoin sends both order-state changes and fills on this single topic,
+        distinguished by `data["type"]`:
+
+        - `"open"`: order accepted, resting on the book
+        - `"match"`: a fill occurred; `matchPrice`/`matchSize`/`tradeId`
+        describe this specific execution, status reported as `"partialFilled"`
+        - `"update"`: non-fill amendment, order stays `"open"`
+        - `"filled"`: order fully filled (terminal)
+        - `"canceled"`: order canceled (terminal)
+
+        `matchPrice`/`matchSize`/`tradeId` are only set on `"match"` events;
+        on all other events they are `None`. To reconstruct fills, accumulate
+        only from events where these are not `None`, deduped by `tradeId`.
+        """
+        raw_type = data["type"]
+        if raw_type == "open":
+            status = "open"
+        elif raw_type == "match":
+            status = "partialFilled"
+        elif raw_type == "update":
+            status = "open"
+        elif raw_type == "filled":
+            status = "filled"
+        elif raw_type == "canceled":
+            status = "canceled"
+        else:
+            raise ValueError(f"Unknown order event type: {raw_type!r}")
+
+        return {
+            "id": data["orderId"],
+            "customId": data.get("clientOid"),
+            "symbol": data["symbol"],
+            "status": status,
+            "side": data["side"],
+            "type": data["orderType"],
+            "price": data.get("price", "0.0"),
+            "size": data["size"],
+            "filledSize": data["filledSize"],
+            "remainingSize": data["remainSize"],
+            "matchPrice": data.get("matchPrice"),
+            "matchSize": data.get("matchSize"),
+            "tradeId": data.get("tradeId"),
+            "updatedAt": data["orderTime"],
+        }
