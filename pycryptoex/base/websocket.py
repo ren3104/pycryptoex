@@ -13,14 +13,8 @@ from .exceptions import ExchangeWebsocketError, ExchangeWebsocketClosed
 if TYPE_CHECKING:
     from aiohttp import ClientWebSocketResponse
 
-    import sys
     from collections.abc import Callable
     from typing import Any
-
-    if sys.version_info >= (3, 11):
-        from typing import Self
-    else:
-        from typing_extensions import Self
 
 
 class BaseWebsocket(metaclass=abc.ABCMeta):
@@ -42,7 +36,6 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
 
     def __init__(
         self,
-        connection: ClientWebSocketResponse,
         on_message: Callable[[BaseWebsocket, Any], Any] | None = None,
         on_open: Callable[[BaseWebsocket], Any] | None = None,
         on_close: Callable[[BaseWebsocket, int], Any] | None = None,
@@ -51,7 +44,7 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         ping_interval: float = 10.0,
         pong_timeout: float | None = None,
     ) -> None:
-        self._connection = connection
+        self._connection: ClientWebSocketResponse | None = None
         self._on_message_callback = on_message
         self._on_open_callback = on_open
         self._on_close_callback = on_close
@@ -73,30 +66,31 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
 
     @property
     def closed(self) -> bool:
-        return self._connection.closed
+        return self._connection is None or self._connection.closed
 
-    @classmethod
-    async def connect(cls, session: ClientSession, url: str, **kwargs: Any) -> Self:
-        connection = await session.ws_connect(url, autoclose=False, autoping=False)
-        websocket = cls(connection, **kwargs)
+    async def connect(self, session: ClientSession, url: str, **kwargs: Any) -> None:
+        if self._connection is not None:
+            return
 
-        websocket._receive_loop_task = asyncio.create_task(websocket._receive_loop())
+        self._connection = await session.ws_connect(
+            url, autoclose=False, autoping=False
+        )
 
-        if websocket.ping_interval > 0:
-            websocket._keepalive_loop_task = asyncio.create_task(
-                websocket._keepalive_loop()
+        self._receive_loop_task = asyncio.create_task(self._receive_loop())
+
+        if self.ping_interval > 0:
+            self._keepalive_loop_task = asyncio.create_task(
+                self._keepalive_loop()
             )
 
-        await websocket._callback(websocket._on_open_callback, websocket)
-
-        return websocket
+        await self._callback(self._on_open_callback, self)
 
     async def close(self, code: int = 1000) -> None:
-        if not self._connection.closed:
+        if self._connection is not None and not self._connection.closed:
             await self._connection.close(code=code)
 
     async def send(self, data: str | Any) -> None:
-        if self.closed:
+        if self._connection is None or self._connection.closed:
             raise ExchangeWebsocketClosed()
 
         if not isinstance(data, str):
@@ -125,22 +119,13 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         finally:
             self._listeners.pop(request_id, None)
 
-    @abc.abstractmethod
-    async def subscribe(self, topic: str) -> Any: ...
-
-    @abc.abstractmethod
-    async def unsubscribe(self, topic: str) -> Any: ...
-
     async def _emit_message(self, data: Any) -> None:
         await self._callback(self._on_message_callback, self, data)
-
-    @abc.abstractmethod
-    async def _on_receive_data(self, data: Any) -> None: ...
 
     async def _receive_loop(self) -> None:
         code = 1000
         try:
-            while not self.closed:
+            while not (self._connection is None or self._connection.closed):
                 message = await self._connection.receive()
 
                 if message.type == WSMsgType.TEXT:
@@ -180,7 +165,7 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         for request_id in list(self._listeners):
             self._set_listener_result(request_id, ExchangeWebsocketClosed())
 
-        if not self._connection.closed:
+        if self._connection is not None and not self._connection.closed:
             await self._connection.close()
 
         if self._error is not None:
@@ -191,11 +176,11 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
     async def _ping(self) -> None:
         # If you change this function, then don't forget
         # to change the handling of self._last_pong
-        await self._connection.ping()
+        await self._connection.ping() # type: ignore[union-attr]
 
     async def _keepalive_loop(self) -> None:
         try:
-            while not self.closed:
+            while not (self._connection is None or self._connection.closed):
                 await asyncio.sleep(self.ping_interval)
 
                 if self._last_pong + self.pong_timeout * 1000 < current_timestamp():
@@ -207,7 +192,7 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         except Exception as e:
             self._set_error(e)
 
-            if not self._connection.closed:
+            if self._connection is not None and not self._connection.closed:
                 await self._connection.close(code=1006)
 
     def _set_listener_result(self, request_id: str, result: Any) -> bool:
@@ -244,3 +229,16 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
 
             self._set_error(e)
             await self.close(1006)
+
+    @abc.abstractmethod
+    async def _on_receive_data(self, data: Any) -> None: ...
+
+    @abc.abstractmethod
+    async def subscribe(self, topic: str) -> Any: ...
+
+    @abc.abstractmethod
+    async def unsubscribe(self, topic: str) -> Any: ...
+
+    @abc.abstractmethod
+    def parse_order_update(self, data: dict[str, Any]) -> dict[str, Any]:
+        ...
