@@ -21,6 +21,7 @@ from .utils import to_json, from_json, current_timestamp
 
 if TYPE_CHECKING:
     import sys
+    from numbers import Number
     from types import TracebackType
     from collections.abc import Callable
     from typing import Any
@@ -40,6 +41,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
         "base_url",
         "_session",
         "timestamp_offset",
+        "_headers",
     )
 
     DEFAULT_URL = ""
@@ -56,6 +58,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
         private_key_pass: str | None = None,
         base_url: str | None = None,
         timestamp_offset: int | None = None,
+        headers: dict[str, Any] | None = None,
     ) -> None:
         self.api_key = api_key
         self.secret = secret
@@ -85,18 +88,19 @@ class BaseExchange(metaclass=abc.ABCMeta):
         self._session: ClientSession | None = None
         self.timestamp_offset = timestamp_offset
 
+        self._headers = {
+            "Content-Type": "application/json;charset=utf-8",
+            "User-Agent": "pycryptoex",
+        }
+        if headers is not None:
+            self._headers.update(headers)
+
     @property
     def closed(self) -> bool:
         return self._session is None or self._session.closed
 
     def _create_session(self) -> ClientSession:
-        return ClientSession(
-            headers={
-                "Content-Type": "application/json;charset=utf-8",
-                "User-Agent": "pycryptoex",
-            },
-            json_serialize=to_json,
-        )
+        return ClientSession(json_serialize=to_json)
 
     @abc.abstractmethod
     def _sign(
@@ -128,6 +132,11 @@ class BaseExchange(metaclass=abc.ABCMeta):
         if "timeout" not in request_kwargs:
             request_kwargs["timeout"] = self.DEFAULT_TIMEOUT
 
+        if headers is None:
+            headers = self._headers.copy()
+        else:
+            headers.update(self._headers)
+
         for attempt in range(max_retries + 1):
             if self._session is None:
                 raise PycryptoexError("Exchange client is not initialized")
@@ -135,9 +144,6 @@ class BaseExchange(metaclass=abc.ABCMeta):
                 self._session = self._create_session()
 
             if signed:
-                if headers is None:
-                    headers = {}
-
                 self._sign(path, params, data, headers, method)
 
             try:
@@ -149,7 +155,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
                     headers=headers,
                     **request_kwargs,
                 ) as response:
-                    json_data = await response.json(encoding="utf-8", loads=from_json)
+                    json_data = from_json(await response.read())
 
                     self._handle_errors(json_data)
 
@@ -179,6 +185,28 @@ class BaseExchange(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     async def get_server_time(self) -> int: ...
+
+    @abc.abstractmethod
+    async def create_order(
+        self,
+        symbol: str,
+        type: str,
+        side: str,
+        size: Number,
+        price: Number | None = None,
+        time_in_force: str = "GTC",
+        custom_id: str | None = None,
+    ) -> Any:
+        ...
+
+    @abc.abstractmethod
+    async def cancel_order(
+        self,
+        symbol: str,
+        id: str | None = None,
+        custom_id: str | None = None,
+    ) -> Any:
+        ...
 
     async def __aenter__(self) -> Self:
         if self.closed:
