@@ -18,6 +18,8 @@ from .base.exceptions import (
 )
 
 if TYPE_CHECKING:
+    from aiohttp import ClientSession
+
     from numbers import Number
     from collections.abc import Callable
     from typing import Any
@@ -113,15 +115,7 @@ class KuCoin(BaseExchange):
             ping_interval=ping_interval,
         )
 
-        future = asyncio.get_running_loop().create_future()
-        ws._listeners["welcome"] = future
-
         await ws.connect(self._session, url)
-
-        try:
-            await asyncio.wait_for(future, 10)
-        finally:
-            ws._listeners.pop("welcome", None)
 
         return ws
 
@@ -185,6 +179,17 @@ class KuCoin(BaseExchange):
 
 class KuCoinWebsocket(BaseWebsocket):
     __slots__ = ()
+
+    async def connect(self, session: ClientSession, url: str) -> None:
+        future = asyncio.get_running_loop().create_future()
+        self._listeners["welcome"] = future
+
+        await super().connect(session, url)
+
+        try:
+            await asyncio.wait_for(future, 10)
+        finally:
+            self._listeners.pop("welcome", None)
 
     async def _ping(self) -> None:
         await self.send('{"id":"0","type":"ping"}')

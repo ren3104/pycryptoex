@@ -68,7 +68,7 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
     def closed(self) -> bool:
         return self._connection is None or self._connection.closed
 
-    async def connect(self, session: ClientSession, url: str, **kwargs: Any) -> None:
+    async def connect(self, session: ClientSession, url: str) -> None:
         if self._connection is not None:
             return
 
