@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from decimal import ROUND_HALF_EVEN, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_EVEN, ROUND_DOWN
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
@@ -60,7 +60,7 @@ class KuCoin(BaseExchange):
                 key=self.secret, msg=self.passphrase
             )
         if "KC-API-KEY-VERSION" not in headers:
-            headers["KC-API-KEY-VERSION"] = "2"
+            headers["KC-API-KEY-VERSION"] = "3"
 
     def _handle_errors(self, data: Any) -> None:
         if not isinstance(data, dict):
@@ -176,18 +176,71 @@ class KuCoin(BaseExchange):
             method="DELETE"
         )
 
+    async def get_order(
+        self,
+        symbol: str,
+        id: str | None = None,
+        custom_id: str | None = None,
+    ) -> Any | None:
+        if id:
+            path = "/api/v1/hf/orders/" + id
+        elif custom_id:
+            path = "/api/v1/hf/orders/client-order/" + custom_id
+        else:
+            raise ValueError("Either id or custom_id must be provided")
+
+        data = (await self.request(
+            path=path,
+            signed=True,
+            params={"symbol": symbol}
+        ))["data"]
+        if data is None:
+            return None
+
+        if data["cancelExist"]:
+            status = "canceled"
+        elif Decimal(data["dealSize"]) == 0:
+            status = "open"
+        elif Decimal(data["remainSize"]) <= 0:
+            status = "filled"
+        else:
+            status = "partialFilled"
+
+        return {
+            "id": data["id"],
+            "customId": data.get("clientOid"),
+            "symbol": data["symbol"],
+            "status": status,
+            "side": data["side"],
+            "type": data["type"],
+            "timeInForce": data["timeInForce"],
+            "price": data["price"],
+            "size": data["size"],
+            "filledSize": data["dealSize"],
+            "quoteSize": data["funds"],
+            "filledQuoteSize": data["dealFunds"],
+            "createdAt": data["createdAt"],
+            "updatedAt": data["lastUpdatedAt"],
+            "fee": {
+                "currency": data["feeCurrency"],
+                "size": data["fee"],
+            },
+        }
+
 
 class KuCoinWebsocket(BaseWebsocket):
     __slots__ = ()
 
-    async def connect(self, session: ClientSession, url: str) -> None:
+    async def _connect(self, session: ClientSession, url: str) -> None:
         future = asyncio.get_running_loop().create_future()
         self._listeners["welcome"] = future
 
-        await super().connect(session, url)
+        await super()._connect(session, url)
 
         try:
             await asyncio.wait_for(future, 10)
+        except TimeoutError as e:
+            raise ExchangeWebsocketError("Timeout for receiving welcome message") from e
         finally:
             self._listeners.pop("welcome", None)
 
@@ -201,7 +254,7 @@ class KuCoinWebsocket(BaseWebsocket):
             return
 
         if data_type == "message":
-            await self._emit_message(data["data"])
+            await self._emit_message(data)
         elif data_type == "pong":
             self._last_pong = current_timestamp()
         elif data_type == "ack":
@@ -209,8 +262,8 @@ class KuCoinWebsocket(BaseWebsocket):
         elif data_type == "welcome":
             self._set_listener_result("welcome", True)
         elif data_type == "error":
-            err = ExchangeWebsocketError(data["code"], data["data"])
-            if not self._set_listener_result(data["id"], err):
+            err = ExchangeWebsocketError(f"[{data['code']}] {data['data']}")
+            if not self._set_listener_result(data.get("id"), err):
                 self._set_error(err)
                 await self.close(1006)
 
@@ -286,5 +339,5 @@ class KuCoinWebsocket(BaseWebsocket):
             "matchPrice": data.get("matchPrice"),
             "matchSize": data.get("matchSize"),
             "tradeId": data.get("tradeId"),
-            "updatedAt": data["orderTime"],
+            "timestamp": data["orderTime"],
         }
