@@ -4,7 +4,8 @@ from aiohttp import ClientSession, WSMsgType
 
 import abc
 import asyncio
-from inspect import iscoroutinefunction
+import logging
+from inspect import isawaitable
 from typing import TYPE_CHECKING
 
 from .utils import current_timestamp, to_json, from_json
@@ -16,10 +17,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+logger = logging.getLogger(__name__)
+
 
 class BaseWebsocket(metaclass=abc.ABCMeta):
     __slots__ = (
         "_connection",
+        "_lock",
         "_on_message_callback",
         "_on_open_callback",
         "_on_close_callback",
@@ -40,22 +44,32 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         on_open: Callable[[BaseWebsocket], Any] | None = None,
         on_close: Callable[[BaseWebsocket, int], Any] | None = None,
         on_error: Callable[[BaseWebsocket, BaseException], Any] | None = None,
-        private: bool = False,
-        ping_interval: float = 10.0,
+        private: bool | None = None,
+        ping_interval: float | None = None,
         pong_timeout: float | None = None,
     ) -> None:
         self._connection: ClientWebSocketResponse | None = None
+        self._lock = asyncio.Lock()
         self._on_message_callback = on_message
         self._on_open_callback = on_open
         self._on_close_callback = on_close
         self._on_error_callback = on_error
-        self.private = private
 
-        self.ping_interval = ping_interval
+        if private is None:
+            self.private = False
+        else:
+            self.private = private
+
+        if ping_interval is None:
+            self.ping_interval = 10.0
+        else:
+            self.ping_interval = ping_interval
+
         if pong_timeout is None:
-            self.pong_timeout = ping_interval * 2
+            self.pong_timeout = self.ping_interval * 2
         else:
             self.pong_timeout = pong_timeout
+
         self._last_pong: int = current_timestamp()
         self._keepalive_loop_task: asyncio.Task[None] | None = None
 
@@ -69,9 +83,20 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         return self._connection is None or self._connection.closed
 
     async def connect(self, session: ClientSession, url: str) -> None:
-        if self._connection is not None:
-            return
+        try:
+            async with self._lock:
+                if self._connection is not None:
+                    return
 
+                await self._connect(session, url)
+        except BaseException:
+            await self.close()
+            raise
+
+        if not self.closed:
+            await self._callback(self._on_open_callback, self)
+
+    async def _connect(self, session: ClientSession, url: str) -> None:
         self._connection = await session.ws_connect(
             url, autoclose=False, autoping=False
         )
@@ -83,11 +108,10 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
                 self._keepalive_loop()
             )
 
-        await self._callback(self._on_open_callback, self)
-
     async def close(self, code: int = 1000) -> None:
-        if self._connection is not None and not self._connection.closed:
-            await self._connection.close(code=code)
+        async with self._lock:
+            if self._connection is not None and not self._connection.closed:
+                await self._connection.close(code=code)
 
     async def send(self, data: str | Any) -> None:
         if self._connection is None or self._connection.closed:
@@ -168,7 +192,10 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
         if self._connection is not None and not self._connection.closed:
             await self._connection.close()
 
+        self._connection = None
+
         if self._error is not None:
+            code = 1006
             await self._callback(self._on_error_callback, self, self._error)
 
         await self._callback(self._on_close_callback, self, code)
@@ -215,16 +242,16 @@ class BaseWebsocket(metaclass=abc.ABCMeta):
             return
 
         try:
-            if iscoroutinefunction(callback):
-                await callback(*args)
-            else:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, callback, *args)
+            result = callback(*args)
+            if isawaitable(result):
+                await result
         except Exception as e:
             if (
                 callback is self._on_error_callback
                 or callback is self._on_close_callback
             ):
+                logger.exception(
+                    "Unhandled exception in websocket callback %r", callback)
                 return
 
             self._set_error(e)
