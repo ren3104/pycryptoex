@@ -38,10 +38,17 @@ def number_to_precision(
     rounding_mode: str = ROUND_HALF_EVEN
 ) -> str:
     decimal_number = number if isinstance(number, Decimal) else Decimal(str(number))
-    return str(decimal_number.quantize(
+
+    result = decimal_number.quantize(
         Decimal(precision),
-        rounding_mode
-    ).normalize())
+        rounding=rounding_mode,
+    )
+
+    formatted = format(result, "f")
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+
+    return formatted
 
 
 if HAS_ORJSON:
