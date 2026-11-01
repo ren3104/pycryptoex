@@ -160,7 +160,8 @@ class KuCoin(BaseExchange):
         if custom_id:
             data["clientOid"] = custom_id
 
-        for _ in range(2):
+        max_retries = 1
+        for attempt in range(max_retries + 1):
             symbol_info = await self.get_symbol_info(symbol)
 
             data["size"] = number_to_precision(
@@ -181,7 +182,7 @@ class KuCoin(BaseExchange):
             except ExchangeApiError as e:
                 # [600100] order size increment invalid.
                 # [600100] price increment invalid.
-                if e.code == "600100":
+                if attempt < max_retries and e.code == "600100":
                     await self.load_symbols_info()
                     continue
 
