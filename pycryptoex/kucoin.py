@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from decimal import Decimal, ROUND_HALF_EVEN, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
@@ -53,26 +53,22 @@ class KuCoin(BaseExchange):
             key=self.secret, msg=timestamp + method + path + body
         )
         headers["KC-API-TIMESTAMP"] = timestamp
-        if "KC-API-KEY" not in headers:
-            headers["KC-API-KEY"] = self.api_key
+        headers.setdefault("KC-API-KEY", self.api_key)
+        headers.setdefault("KC-API-KEY-VERSION", "3")
         if "KC-API-PASSPHRASE" not in headers:
             headers["KC-API-PASSPHRASE"] = hmac_base64(
                 key=self.secret, msg=self.passphrase
             )
-        if "KC-API-KEY-VERSION" not in headers:
-            headers["KC-API-KEY-VERSION"] = "3"
 
     def _handle_errors(self, data: Any) -> None:
         if not isinstance(data, dict):
             return
 
-        code = data.get("code")
-        if code == "200000":
+        code = str(data.get("code") or "")
+        if code in ("", "200000", "200"):
             return
 
-        msg = data.get("msg")
-        if not isinstance(code, str) or not isinstance(msg, str):
-            return
+        msg = str(data.get("msg") or "").lower()
 
         if code == "400002":
             raise InvalidNonce(code, msg)
@@ -99,10 +95,9 @@ class KuCoin(BaseExchange):
             token_data = await self.request("/api/v1/bullet-public", method="POST")
 
         ws_info = token_data["data"]["instanceServers"][0]
-        if url is None:
-            url = ws_info["endpoint"]
-        url = "{endpoint}?token={token}".format(
-            endpoint=url, token=token_data["data"]["token"]
+        endpoint = url if url is not None else ws_info["endpoint"]
+        ws_url = "{endpoint}?token={token}".format(
+            endpoint=endpoint, token=token_data["data"]["token"]
         )
         ping_interval = ws_info["pingInterval"] / 1000
 
@@ -115,13 +110,35 @@ class KuCoin(BaseExchange):
             ping_interval=ping_interval,
         )
 
-        await ws.connect(self._session, url)
+        await ws.connect(self._session, ws_url)
 
         return ws
 
     async def get_server_time(self) -> int:
         data: int = (await self.request("/api/v1/timestamp"))["data"]
         return data
+
+    async def load_symbols_info(self) -> None:
+        data = (await self.request("/api/v2/symbols"))["data"]
+        for item in data:
+            self.symbols_info[item["symbol"]] = {
+                "symbol": item["symbol"],
+                "base": item["baseCurrency"],
+                "quote": item["quoteCurrency"],
+                "price_increment": item["priceIncrement"],
+                "size_increment": item["baseIncrement"],
+                "min_size": item["baseMinSize"],
+                "max_size": item["baseMaxSize"],
+            }
+
+    async def get_symbol_info(self, symbol: str) -> dict[str, Any]:
+        if symbol not in self.symbols_info:
+            await self.load_symbols_info()
+
+        info = self.symbols_info.get(symbol)
+        if info is None:
+            raise ValueError(f"Unknown symbol: {symbol!r}")
+        return info
 
     async def create_order(
         self,
@@ -133,28 +150,42 @@ class KuCoin(BaseExchange):
         time_in_force: str = "GTC",
         custom_id: str | None = None,
     ) -> Any:
-        size_str = number_to_precision(size, "0.00000001", ROUND_DOWN)
-
         data = {
             "symbol": symbol,
             "type": type,
             "side": side,
-            "size": size_str,
             "timeInForce": time_in_force,
         }
-
-        if price is not None:
-            data["price"] = number_to_precision(price, "0.00000001", ROUND_HALF_EVEN)
 
         if custom_id:
             data["clientOid"] = custom_id
 
-        return await self.request(
-            path="/api/v1/hf/orders",
-            signed=True,
-            data=data,
-            method="POST"
-        )
+        for _ in range(2):
+            symbol_info = await self.get_symbol_info(symbol)
+
+            data["size"] = number_to_precision(
+                size, symbol_info["size_increment"], ROUND_DOWN)
+
+            if price is not None:
+                data["price"] = number_to_precision(
+                    price, symbol_info["price_increment"], ROUND_HALF_UP)
+
+            try:
+                return await self.request(
+                    path="/api/v1/hf/orders",
+                    signed=True,
+                    data=data,
+                    method="POST",
+                    max_retries=0,
+                )
+            except ExchangeApiError as e:
+                # [600100] order size increment invalid.
+                # [600100] price increment invalid.
+                if e.code == "600100":
+                    await self.load_symbols_info()
+                    continue
+
+                raise
 
     async def cancel_order(
         self,
@@ -213,7 +244,7 @@ class KuCoin(BaseExchange):
             "status": status,
             "side": data["side"],
             "type": data["type"],
-            "timeInForce": data["timeInForce"],
+            "timeInForce": data.get("timeInForce"),
             "price": data["price"],
             "size": data["size"],
             "filledSize": data["dealSize"],
@@ -235,12 +266,15 @@ class KuCoinWebsocket(BaseWebsocket):
         future = asyncio.get_running_loop().create_future()
         self._listeners["welcome"] = future
 
-        await super()._connect(session, url)
-
         try:
-            await asyncio.wait_for(future, 10)
-        except TimeoutError as e:
-            raise ExchangeWebsocketError("Timeout for receiving welcome message") from e
+            await super()._connect(session, url)
+
+            try:
+                await asyncio.wait_for(future, 10)
+            except asyncio.TimeoutError as e:
+                raise ExchangeWebsocketError(
+                    "Timeout for receiving welcome message"
+                ) from e
         finally:
             self._listeners.pop("welcome", None)
 
@@ -332,7 +366,7 @@ class KuCoinWebsocket(BaseWebsocket):
             "status": status,
             "side": data["side"],
             "type": data["orderType"],
-            "price": data.get("price", "0.0"),
+            "price": data.get("price"),
             "size": data["size"],
             "filledSize": data["filledSize"],
             "remainingSize": data["remainSize"],

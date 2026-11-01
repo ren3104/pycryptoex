@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from numbers import Number
     from types import TracebackType
     from collections.abc import Callable
-    from typing import Any
+    from typing import Any, ClassVar
 
     if sys.version_info >= (3, 11):
         from typing import Self
@@ -48,6 +48,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
     DEFAULT_TIMEOUT = ClientTimeout(total=10)
     MAX_RETRIES = 3
     RETRY_WAIT = 3
+    symbols_info: ClassVar[dict[str, dict[str, Any]]] = {}
 
     def __init__(
         self,
@@ -132,10 +133,7 @@ class BaseExchange(metaclass=abc.ABCMeta):
         if "timeout" not in request_kwargs:
             request_kwargs["timeout"] = self.DEFAULT_TIMEOUT
 
-        if headers is None:
-            headers = self._headers.copy()
-        else:
-            headers.update(self._headers)
+        headers = {**self._headers, **(headers or {})}
 
         for attempt in range(max_retries + 1):
             if self._session is None:
@@ -158,8 +156,6 @@ class BaseExchange(metaclass=abc.ABCMeta):
                     json_data = from_json(await response.read())
 
                     self._handle_errors(json_data)
-
-                    response.raise_for_status()
 
                     return json_data
             except (
@@ -187,6 +183,12 @@ class BaseExchange(metaclass=abc.ABCMeta):
     async def get_server_time(self) -> int: ...
 
     @abc.abstractmethod
+    async def load_symbols_info(self) -> None: ...
+
+    @abc.abstractmethod
+    async def get_symbol_info(self, symbol: str) -> dict[str, Any]: ...
+
+    @abc.abstractmethod
     async def create_order(
         self,
         symbol: str,
@@ -208,6 +210,15 @@ class BaseExchange(metaclass=abc.ABCMeta):
     ) -> Any:
         ...
 
+    @abc.abstractmethod
+    async def get_order(
+        self,
+        symbol: str,
+        id: str | None = None,
+        custom_id: str | None = None,
+    ) -> Any | None:
+        ...
+
     async def __aenter__(self) -> Self:
         if self.closed:
             self._session = self._create_session()
@@ -224,7 +235,8 @@ class BaseExchange(metaclass=abc.ABCMeta):
         tb: TracebackType | None,
     ) -> None:
         if self._session is not None and not self._session.closed:
-            await self._session.close()
+            session, self._session = self._session, None
+            await session.close()
             # Wait 250 ms for the underlying SSL connections to close
             # https://docs.aiohttp.org/en/stable/client_advanced.html#graceful-shutdown
             await asyncio.sleep(0.25)
